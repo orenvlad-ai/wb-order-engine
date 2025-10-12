@@ -1,8 +1,13 @@
 import io
-from datetime import date
-import pandas as pd
-from pydantic import ValidationError
+from datetime import date, datetime
 from typing import Tuple, List
+
+import pandas as pd
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.comments import Comment
+
+from pydantic import ValidationError
+
 from engine.models import SkuInput, InTransitItem, Recommendation
 from engine.calc import calculate
 
@@ -66,21 +71,98 @@ def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
 
     return items, trans
 
+# ---------- Форматирование Recommendations ----------
+
+_HEADER_FILL = PatternFill(start_color="FFEFEFEF", end_color="FFEFEFEF", fill_type="solid")
+_RISK_FILL   = PatternFill(start_color="FFFFE5E5", end_color="FFFFE5E5", fill_type="solid")
+_BOLD = Font(bold=True)
+_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
+_LEFT = Alignment(horizontal="left", vertical="center", wrap_text=True)
+_THIN = Side(border_style="thin", color="FFBFBFBF")
+_BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
+
+# Порядок колонок (берём те, что реально есть в данных)
+_ORDER = [
+    "sku", "order_qty", "shortage", "target", "coverage", "inbound",
+    "demand_H", "H_days", "moq_step", "comment", "algo_version"
+]
+
+def _order_columns(df: pd.DataFrame) -> pd.DataFrame:
+    cols = [c for c in _ORDER if c in df.columns] + [c for c in df.columns if c not in _ORDER]
+    return df[cols]
+
+def _apply_formats(ws):
+    # Шапка
+    for cell in ws[1]:
+        cell.font = _BOLD
+        cell.alignment = _CENTER
+        cell.fill = _HEADER_FILL
+        cell.border = _BORDER
+        # краткие подсказки
+        if cell.value == "order_qty":
+            cell.comment = Comment("Рекомендованный заказ с кратностью MOQ", "WB Engine")
+        if cell.value == "shortage":
+            cell.comment = Comment("Нехватка к цели (demand_H + safety_stock)", "WB Engine")
+
+    # Форматы чисел (без десятых)
+    int_like = {"H_days","inbound","coverage","target","shortage","moq_step","order_qty","demand_H"}
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            if cell.column_letter and ws.cell(row=1, column=cell.column).value in int_like:
+                cell.number_format = "0"
+            cell.border = _BORDER
+            if isinstance(cell.value, str):
+                cell.alignment = _LEFT
+
+    # Подсветка риска: если shortage > 0 → розовым фоном
+    # (risk_flag у нас = shortage>0, т.к. отдельного поля нет)
+    shortage_col = None
+    for cell in ws[1]:
+        if cell.value == "shortage":
+            shortage_col = cell.column
+            break
+    if shortage_col:
+        for r in range(2, ws.max_row + 1):
+            val = ws.cell(r, shortage_col).value
+            try:
+                if val and float(val) > 0:
+                    for c in range(1, ws.max_column + 1):
+                        ws.cell(r, c).fill = _RISK_FILL
+            except Exception:
+                pass
+
+    # Автоширина
+    widths = {}
+    for r in ws.iter_rows(values_only=True):
+        for idx, v in enumerate(r, start=1):
+            w = len(str(v)) if v is not None else 0
+            widths[idx] = max(widths.get(idx, 0), w)
+    for idx, w in widths.items():
+        ws.column_dimensions[ws.cell(1, idx).column_letter].width = min(max(w + 2, 10), 60)
+
 def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
-    # Берём исходные листы и добавляем Recommendations
+    # Конвертируем в DataFrame и отсортируем колонки
+    df_rec = pd.DataFrame([r.model_dump() for r in recs])
+    if not df_rec.empty:
+        df_rec = _order_columns(df_rec)
+
     in_buf = io.BytesIO(xlsx_in)
     out_buf = io.BytesIO()
     with pd.ExcelWriter(out_buf, engine="openpyxl") as w:
-        # переносим существующие листы как есть
+        # Переносим исходные листы как есть (если читаются)
         try:
             xl = pd.ExcelFile(in_buf)
             for name in xl.sheet_names:
                 pd.read_excel(xl, name).to_excel(w, sheet_name=name, index=False)
         except Exception:
-            pass  # если не смогли прочитать — просто создадим Recommendations
-        # Recommendations
-        df_rec = pd.DataFrame([r.model_dump() for r in recs])
+            pass
+
+        # Пишем Recommendations
         df_rec.to_excel(w, sheet_name="Recommendations", index=False)
+        ws = w.book["Recommendations"]
+        _apply_formats(ws)
+        ws.freeze_panes = "A2"
+
     return out_buf.getvalue()
 
 def process_excel(xlsx_bytes: bytes) -> bytes:

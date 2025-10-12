@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List
+from datetime import datetime
 from engine.models import SkuInput, InTransitItem, Recommendation
 from engine.calc import calculate
 from adapters.excel_io import process_excel, BadTemplateError
@@ -30,9 +31,11 @@ async def rec_excel(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         raise HTTPException(status_code=500, detail="Ошибка обработки файла")
-    filename = "Recommendations.xlsx"
+
+    stamp = datetime.now().date().isoformat()
+    filename = f"Planner_Recommendations_{stamp}.xlsx"
     return StreamingResponse(
         io.BytesIO(result),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename=\"{filename}\"'}
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
