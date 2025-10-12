@@ -1,0 +1,1 @@
+ALGO_VERSION = "v1.2a"
