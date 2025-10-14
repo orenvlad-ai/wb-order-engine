@@ -1,0 +1,72 @@
+name: Release - attach Planner_Latest.xlsx
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  make-latest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch release JSON
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -sS -H "authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/${{ github.event.release.id }}" \
+            > release.json
+          echo "Saved release.json"
+
+      - name: Ensure there is at least one .xlsx asset
+        run: |
+          set -euo pipefail
+          XLSX_URL=$(jq -r '.assets[] | select(.name|endswith(".xlsx")) | .browser_download_url' release.json | head -n1)
+          if [ -z "$XLSX_URL" ] || [ "$XLSX_URL" = "null" ]; then
+            echo "No .xlsx asset found on this release. Please attach your Excel file first."
+            exit 1
+          fi
+          echo "ASSET_URL=$XLSX_URL" >> $GITHUB_ENV
+
+      - name: Download the Excel asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -L -H "authorization: Bearer $GITHUB_TOKEN" \
+            -o Planner_Latest.xlsx \
+            "$ASSET_URL"
+          ls -lh Planner_Latest.xlsx
+
+      - name: Delete existing Planner_Latest.xlsx if present
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ASSET_ID=$(jq -r '.assets[] | select(.name=="Planner_Latest.xlsx") | .id' release.json || true)
+          if [ -n "${ASSET_ID:-}" ] && [ "$ASSET_ID" != "null" ]; then
+            echo "Found existing Planner_Latest.xlsx (asset id=$ASSET_ID). Deleting…"
+            curl -sS -X DELETE -H "authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/assets/$ASSET_ID" >/dev/null
+          else
+            echo "No existing Planner_Latest.xlsx to delete."
+          fi
+
+      - name: Upload Planner_Latest.xlsx to this release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          UPLOAD_URL=$(jq -r '.upload_url' release.json | sed 's/{?name,label}//')
+          echo "Uploading to: $UPLOAD_URL"
+          curl -sS -X POST \
+            -H "authorization: Bearer $GITHUB_TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @Planner_Latest.xlsx \
+            "$UPLOAD_URL?name=Planner_Latest.xlsx" \
+            >/dev/null
+          echo "Uploaded Planner_Latest.xlsx"
+
