@@ -1,8 +1,9 @@
 from datetime import date, timedelta
 import math
 from typing import Iterable, List
+
 from .models import SkuInput, InTransitItem, Recommendation
-from . import ALGO_VERSION
+from .config import SOFT_BUFFER, ALGO_VERSION  # <-- берём конфиг отсюда
 
 def _today() -> date:
     return date.today()
@@ -33,10 +34,37 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         target = demand + x.safety_stock_mp
         shortage = max(0.0, target - coverage)
         order = _order_qty(shortage, x.moq_step)
-        comment = f"H={H}; спрос={demand:.0f}; в_пути={inbound}; покрытие={coverage}; цель={target:.0f}; нехватка={shortage:.0f}"
+
+        # --- расчёт reduce_plan_to с мягким зазором SOFT_BUFFER ---
+        # хотим найти такой план p', чтобы:  p' * H + safety_stock + SOFT_BUFFER <= coverage
+        # => p' <= (coverage - safety_stock - SOFT_BUFFER) / H
+        reduce_plan_to = None
+        if shortage > 0 and H > 0:
+            max_plan = (coverage - x.safety_stock_mp - SOFT_BUFFER) / H
+            max_plan = math.floor(max_plan)  # план в целых ед/день вниз
+            if max_plan < 0:
+                max_plan = 0
+            # если текущий план выше допустимого — рекомендуем снизить
+            if max_plan < x.plan_sales_per_day:
+                reduce_plan_to = int(max_plan)
+
+        comment = (
+            f"H={H}; спрос={demand:.0f}; в_пути={inbound}; "
+            f"покрытие={coverage}; цель={target:.0f}; нехватка={shortage:.0f}"
+        )
+
         recs.append(Recommendation(
-            sku=x.sku, H_days=H, demand_H=demand, inbound=inbound, coverage=coverage,
-            target=target, shortage=shortage, moq_step=x.moq_step, order_qty=order,
-            comment=comment, algo_version=ALGO_VERSION
+            sku=x.sku,
+            H_days=H,
+            demand_H=demand,
+            inbound=inbound,
+            coverage=coverage,
+            target=target,
+            shortage=shortage,
+            moq_step=x.moq_step,
+            order_qty=order,
+            reduce_plan_to=reduce_plan_to,
+            comment=comment,
+            algo_version=ALGO_VERSION
         ))
     return recs
