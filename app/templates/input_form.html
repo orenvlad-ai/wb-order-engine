@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>WB Order Engine — Расчёт заказа</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: "Inter", Arial, sans-serif; background: #f7f8fa; margin: 0; padding: 40px; }
+    h1 { text-align: center; color: #222; }
+    form { max-width: 820px; margin: 0 auto; background: #fff; padding: 25px 35px; border-radius: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.08); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .row-1 { display: grid; grid-template-columns: 1fr; gap: 14px; }
+    label { display:block; font-weight:600; margin-top: 10px; }
+    input { width:100%; padding:8px; margin-top:6px; border:1px solid #ccc; border-radius: 8px; font-size:14px; }
+    fieldset { margin-top:18px; border:1px solid #e5e7eb; border-radius:10px; padding:14px; }
+    legend { padding: 0 6px; color:#555; }
+    table { width:100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { padding:10px; border-bottom:1px solid #eee; }
+    th { text-align:left; background:#f9fafb; }
+    .actions { display:flex; gap:10px; justify-content: flex-end; margin-top: 16px; }
+    button { border:0; border-radius:8px; padding:10px 14px; background:#0078D7; color:#fff; cursor:pointer; font-weight:600; }
+    button:hover { background:#005fa3; }
+    .btn-secondary { background:#e5e7eb; color:#111; }
+    .btn-secondary:hover { background:#d1d5db; }
+    small { color:#666; display:block; margin-top:4px; }
+  </style>
+  <script>
+    function validateForm(e){
+      const nums = document.querySelectorAll('input[type=number]');
+      for (const el of nums) {
+        if (el.value === '' || Number(el.value) < Number(el.min || 0)) {
+          alert("Поле '"+ (el.name || 'number') +"' заполнено некорректно."); e.preventDefault(); return false;
+        }
+      }
+      return true;
+    }
+
+    function addTransitRow(){
+      const tbody = document.getElementById('transitBody');
+      const tr = document.createElement('tr');
+
+      tr.innerHTML = `
+        <td><input type="number" name="in_transit_qty" min="1" step="1" placeholder="например, 500" required></td>
+        <td><input type="date"   name="in_transit_eta" required></td>
+        <td style="text-align:right;"><button type="button" class="btn-secondary" onclick="this.closest('tr').remove()">Удалить</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('addTransit').addEventListener('click', addTransitRow);
+      // одна стартовая строка
+      addTransitRow();
+    });
+  </script>
+</head>
+<body>
+  <h1>WB Order Engine</h1>
+
+  <form method="post" action="/calc_excel" onsubmit="return validateForm(event)">
+    <div class="row-1">
+      <label>SKU:
+        <input type="text" name="sku" placeholder="Например: SMK_iPhone15_16" required>
+      </label>
+    </div>
+
+    <div class="row">
+      <label>Stock FF:
+        <input type="number" name="stock_ff" min="0" placeholder="например, 1000" required>
+      </label>
+      <label>Stock MP:
+        <input type="number" name="stock_mp" min="0" placeholder="например, 1700" required>
+      </label>
+    </div>
+
+    <div class="row">
+      <label>План продаж, ед/день:
+        <input type="number" name="plan_sales_per_day" min="0" step="0.01" placeholder="например, 120" required>
+        <small>Можно дробное (например, 12.5)</small>
+      </label>
+      <label>MOQ step:
+        <input type="number" name="moq_step" min="1" step="1" placeholder="например, 250" required>
+      </label>
+    </div>
+
+    <div class="row">
+      <label>Срок производства, дней:
+        <input type="number" name="prod_lead_time_days" min="0" placeholder="например, 15" required>
+      </label>
+      <label>Китай → МСК, дней:
+        <input type="number" name="lead_time_cn_msk" min="0" placeholder="например, 25" required>
+      </label>
+    </div>
+
+    <div class="row">
+      <label>МСК → МП, дней:
+        <input type="number" name="lead_time_msk_mp" min="0" placeholder="например, 7" required>
+      </label>
+      <label>Неснижаемый остаток на МП:
+        <input type="number" name="safety_stock_mp" min="0" placeholder="например, 1000" required>
+      </label>
+    </div>
+
+    <fieldset>
+      <legend>Товар в пути (Китай → МСК)</legend>
+      <div class="actions" style="justify-content:flex-start; margin: 0 0 8px 0;">
+        <button type="button" id="addTransit" class="btn-secondary">+ Добавить партию</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Количество, шт</th>
+            <th>ETA на ФФ (YYYY-MM-DD)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="transitBody"></tbody>
+      </table>
+      <small>Все партии относятся к указанному выше SKU.</small>
+    </fieldset>
+
+    <div class="actions">
+      <button type="submit">📊 Рассчитать и скачать Excel</button>
+    </div>
+  </form>
+</body>
+</html>
