@@ -28,10 +28,12 @@
     .dropzone:hover, .dropzone.dragover { background:#e4f1ff; }
     .dropzone:focus { outline:none; box-shadow:0 0 0 3px rgba(0,120,215,0.25); }
     .dropzone p { margin:0; font-weight:600; }
-    .upload-status { margin-top:12px; font-weight:600; color:#666; text-align:center; min-height:24px; }
+    .upload-status { margin-top:12px; font-weight:600; color:#666; text-align:center; min-height:24px; display:flex; align-items:center; justify-content:center; gap:8px; }
     .upload-status.loading { color:#8a6d3b; }
+    .upload-status.loading::before { content:""; width:16px; height:16px; border:2px solid currentColor; border-top-color: transparent; border-radius:50%; animation:spin 0.8s linear infinite; }
     .upload-status.success { color:#2f855a; }
     .upload-status.error { color:#c53030; }
+    @keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
   </style>
   <script>
     function validateForm(e){
@@ -95,7 +97,7 @@
           setStatus('error', '❌ Поддерживается только .xlsx');
           return;
         }
-        setStatus('loading', '⏳ Загрузка…');
+        setStatus('loading', '⏳ Обработка файла…');
 
         const formData = new FormData();
         formData.append('file', file);
@@ -105,6 +107,7 @@
           body: formData
         }).then(response => {
           if (!response.ok) {
+            setStatus('error', '❌ Ошибка при обработке файла');
             throw new Error(`Upload failed with status ${response.status}`);
           }
           const disposition = response.headers.get('Content-Disposition');
@@ -119,10 +122,10 @@
           link.click();
           link.remove();
           window.URL.revokeObjectURL(url);
-          setStatus('success', '✅ Готово');
+          setStatus('success', '✅ Файл успешно рассчитан и скачан');
         }).catch(err => {
           console.error(err);
-          setStatus('error', '❌ Ошибка');
+          setStatus('error', '❌ Ошибка при обработке файла');
         }).finally(() => {
           fileInput.value = '';
         });
