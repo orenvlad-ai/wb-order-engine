@@ -23,6 +23,15 @@
     .btn-secondary { background:#e5e7eb; color:#111; }
     .btn-secondary:hover { background:#d1d5db; }
     small { color:#666; display:block; margin-top:4px; }
+    .upload-section { max-width:820px; margin:24px auto 0; }
+    .dropzone { border:2px dashed #0078D7; border-radius:12px; padding:30px; text-align:center; color:#0078D7; background:#f8fbff; transition:background-color 0.2s ease, border-color 0.2s ease; cursor:pointer; }
+    .dropzone:hover, .dropzone.dragover { background:#e4f1ff; }
+    .dropzone:focus { outline:none; box-shadow:0 0 0 3px rgba(0,120,215,0.25); }
+    .dropzone p { margin:0; font-weight:600; }
+    .upload-status { margin-top:12px; font-weight:600; color:#666; text-align:center; min-height:24px; }
+    .upload-status.loading { color:#8a6d3b; }
+    .upload-status.success { color:#2f855a; }
+    .upload-status.error { color:#c53030; }
   </style>
   <script>
     function validateForm(e){
@@ -51,6 +60,113 @@
       document.getElementById('addTransit').addEventListener('click', addTransitRow);
       // одна стартовая строка
       addTransitRow();
+
+      const dropzone = document.getElementById('excelDropzone');
+      const fileInput = document.getElementById('excelFileInput');
+      const statusEl = document.getElementById('uploadStatus');
+
+      if (!dropzone || !fileInput || !statusEl) { return; }
+
+      const setStatus = (state, message) => {
+        statusEl.className = `upload-status${state ? ' ' + state : ''}`;
+        statusEl.textContent = message || '';
+      };
+
+      setStatus('', '');
+
+      const extractFilename = (disposition) => {
+        if (!disposition) { return null; }
+        const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+        if (match) {
+          return decodeURIComponent(match[1] || match[2]);
+        }
+        return null;
+      };
+
+      const getDefaultFilename = () => {
+        const today = new Date().toISOString().slice(0, 10);
+        return `Planner_Recommendations_${today}.xlsx`;
+      };
+
+      const uploadFile = (file) => {
+        if (!file) { return; }
+
+        if (!file.name.toLowerCase().endsWith('.xlsx')) {
+          setStatus('error', '❌ Поддерживается только .xlsx');
+          return;
+        }
+        setStatus('loading', '⏳ Загрузка…');
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        fetch('/upload_excel', {
+          method: 'POST',
+          body: formData
+        }).then(response => {
+          if (!response.ok) {
+            throw new Error(`Upload failed with status ${response.status}`);
+          }
+          const disposition = response.headers.get('Content-Disposition');
+          const filename = extractFilename(disposition) || getDefaultFilename();
+          return response.blob().then(blob => ({ blob, filename }));
+        }).then(({ blob, filename }) => {
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          window.URL.revokeObjectURL(url);
+          setStatus('success', '✅ Готово');
+        }).catch(err => {
+          console.error(err);
+          setStatus('error', '❌ Ошибка');
+        }).finally(() => {
+          fileInput.value = '';
+        });
+      };
+
+      dropzone.addEventListener('click', () => fileInput.click());
+      dropzone.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          fileInput.click();
+        }
+      });
+
+      dropzone.addEventListener('dragenter', (event) => {
+        event.preventDefault();
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = 'copy';
+        }
+        dropzone.classList.add('dragover');
+      });
+
+      dropzone.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = 'copy';
+        }
+        dropzone.classList.add('dragover');
+      });
+
+      dropzone.addEventListener('dragleave', () => {
+        dropzone.classList.remove('dragover');
+      });
+
+      dropzone.addEventListener('drop', (event) => {
+        event.preventDefault();
+        dropzone.classList.remove('dragover');
+        const file = event.dataTransfer.files && event.dataTransfer.files[0];
+        uploadFile(file);
+      });
+
+      fileInput.addEventListener('change', (event) => {
+        const file = event.target.files && event.target.files[0];
+        uploadFile(file);
+      });
     });
   </script>
 </head>
@@ -123,5 +239,13 @@
       <button type="submit">📊 Рассчитать и скачать Excel</button>
     </div>
   </form>
+
+  <div class="upload-section">
+    <div id="excelDropzone" class="dropzone" tabindex="0" role="button" aria-label="Загрузка Excel файла">
+      <p>📂 Перетащите Excel-файл сюда или нажмите для выбора</p>
+      <input id="excelFileInput" type="file" accept=".xlsx" style="display:none;">
+    </div>
+    <div id="uploadStatus" class="upload-status"></div>
+  </div>
 </body>
 </html>
