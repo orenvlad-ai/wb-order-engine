@@ -163,8 +163,10 @@
       const dropzone = document.getElementById('excelDropzone');
       const fileInput = document.getElementById('excelFileInput');
       const statusEl = document.getElementById('uploadStatus');
+      const processExcelBtn = document.getElementById('processExcelBtn');
+      const downloadResultBtn = document.getElementById('downloadResultBtn');
 
-      if (!dropzone || !fileInput || !statusEl) { return; }
+      if (!dropzone || !fileInput || !statusEl || !processExcelBtn || !downloadResultBtn) { return; }
 
       const setStatus = (state, message) => {
         statusEl.className = `upload-status${state ? ' ' + state : ''}`;
@@ -173,22 +175,61 @@
 
       setStatus('', '');
 
-      const uploadFile = (file) => {
-        if (!file) { return; }
+      let stagedFile = null;
+      let resultBlob = null;
+      let resultFileName = null;
+      let resultUrl = null;
+
+      const resetResultState = () => {
+        if (resultUrl) {
+          window.URL.revokeObjectURL(resultUrl);
+        }
+        resultBlob = null;
+        resultFileName = null;
+        resultUrl = null;
+        downloadResultBtn.disabled = true;
+      };
+
+      const stageFile = (file) => {
+        stagedFile = null;
+        resetResultState();
+
+        if (!file) {
+          setStatus('', '');
+          processExcelBtn.disabled = true;
+          return;
+        }
 
         if (!file.name.toLowerCase().endsWith('.xlsx')) {
           setStatus('error', '❌ Поддерживается только .xlsx');
+          processExcelBtn.disabled = true;
           return;
         }
+
+        stagedFile = file;
+        const sizeKb = (file.size / 1024).toFixed(0);
+        setStatus('success', `📦 Файл готов к расчёту: ${file.name} (${sizeKb} КБ)`);
+        processExcelBtn.disabled = false;
+      };
+
+      const handleProcessClick = async () => {
+        if (!stagedFile) {
+          return;
+        }
+
         setStatus('loading', '⏳ Обработка файла…');
+        processExcelBtn.disabled = true;
+        downloadResultBtn.disabled = true;
 
         const formData = new FormData();
-        formData.append('file', file);
+        formData.append('file', stagedFile);
 
-        fetch('/upload_excel', {
-          method: 'POST',
-          body: formData
-        }).then(async response => {
+        try {
+          const response = await fetch('/upload_excel', {
+            method: 'POST',
+            body: formData
+          });
+
           if (!response.ok) {
             let detailMessage = null;
             try {
@@ -197,32 +238,63 @@
             } catch (parseError) {
               console.error('Failed to parse error response', parseError);
             }
-            setStatus('error', detailMessage ? `❌ ${detailMessage}` : '❌ Ошибка при обработке файла');
-            throw new Error(`Upload failed with status ${response.status}`);
+            setStatus('error', '❌ ' + (detailMessage || 'Ошибка при обработке файла'));
+            processExcelBtn.disabled = false;
+            return;
           }
+
+          resultBlob = await response.blob();
           const disposition = response.headers.get('Content-Disposition');
-          const filename = extractFilename(disposition) || getDefaultFilename();
-          const blob = await response.blob();
-          return { blob, filename };
-        }).then(({ blob, filename }) => {
-          const url = window.URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = filename;
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          window.URL.revokeObjectURL(url);
-          setStatus('success', '✅ Файл успешно рассчитан и скачан');
-        }).catch(err => {
-          console.error(err);
-          if (!statusEl.classList.contains('error')) {
-            setStatus('error', '❌ Ошибка при обработке файла');
+          resultFileName = extractFilename(disposition) || getDefaultFilename();
+          if (resultUrl) {
+            window.URL.revokeObjectURL(resultUrl);
           }
-        }).finally(() => {
-          fileInput.value = '';
-        });
+          resultUrl = window.URL.createObjectURL(resultBlob);
+          setStatus('success', '✅ Расчёт готов. Нажмите «Скачать результат».');
+          downloadResultBtn.disabled = false;
+        } catch (error) {
+          console.error('Upload failed', error);
+          setStatus('error', '❌ Ошибка при обработке файла');
+        } finally {
+          processExcelBtn.disabled = !stagedFile;
+        }
       };
+
+      const handleDownloadClick = () => {
+        if (!resultBlob || !resultUrl) {
+          return;
+        }
+
+        const link = document.createElement('a');
+        link.href = resultUrl;
+        link.download = resultFileName || getDefaultFilename();
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+
+        window.URL.revokeObjectURL(resultUrl);
+        resultUrl = null;
+        resultBlob = null;
+        resultFileName = null;
+        downloadResultBtn.disabled = true;
+        setStatus('success', '✅ Результат скачан.');
+      };
+
+      processExcelBtn.addEventListener('click', handleProcessClick);
+      processExcelBtn.addEventListener('keydown', (event) => {
+        if ((event.key === 'Enter' || event.key === ' ') && !processExcelBtn.disabled) {
+          event.preventDefault();
+          handleProcessClick();
+        }
+      });
+
+      downloadResultBtn.addEventListener('click', handleDownloadClick);
+      downloadResultBtn.addEventListener('keydown', (event) => {
+        if ((event.key === 'Enter' || event.key === ' ') && !downloadResultBtn.disabled) {
+          event.preventDefault();
+          handleDownloadClick();
+        }
+      });
 
       dropzone.addEventListener('click', () => fileInput.click());
       dropzone.addEventListener('keydown', (event) => {
@@ -256,12 +328,14 @@
         event.preventDefault();
         dropzone.classList.remove('dragover');
         const file = event.dataTransfer.files && event.dataTransfer.files[0];
-        uploadFile(file);
+        stageFile(file);
+        fileInput.value = '';
       });
 
       fileInput.addEventListener('change', (event) => {
         const file = event.target.files && event.target.files[0];
-        uploadFile(file);
+        stageFile(file);
+        fileInput.value = '';
       });
     });
   </script>
@@ -344,6 +418,10 @@
       <input id="excelFileInput" type="file" accept=".xlsx" style="display:none;">
     </div>
     <div id="uploadStatus" class="upload-status"></div>
+    <div class="actions" style="justify-content:center; margin-top:16px;">
+      <button id="processExcelBtn" class="btn-secondary" type="button" disabled tabindex="0">▶ Запустить расчёт</button>
+      <button id="downloadResultBtn" class="btn-secondary" type="button" disabled tabindex="0">⬇ Скачать результат</button>
+    </div>
   </div>
 
   <small style="color:#666;">Алгоритм: {{ algo_version }}</small>
