@@ -5,7 +5,7 @@ from typing import List, Tuple
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
@@ -15,6 +15,7 @@ from engine.calc import calculate
 from engine.models import SkuInput, InTransitItem
 from engine.config import ALGO_VERSION
 import uvicorn
+import logging
 
 
 app = FastAPI(title="WB Order Engine")
@@ -229,20 +230,29 @@ async def calc_excel(
 # ---------------------- Загрузка Excel -> Excel ----------------------
 @app.post("/upload_excel")
 async def upload_excel(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".xlsx"):
-        raise HTTPException(status_code=400, detail="Ожидается .xlsx файл.")
+    try:
+        if not file.filename.lower().endswith(".xlsx"):
+            raise HTTPException(status_code=400, detail="Ожидается .xlsx файл.")
 
-    content = await file.read()
-    items, in_transit = _parse_input_excel(content)
-    recs = calculate(items, in_transit)
-    buff = _excel_from_recs(recs)
+        content = await file.read()
+        items, in_transit = _parse_input_excel(content)
+        recs = calculate(items, in_transit)
+        buff = _excel_from_recs(recs)
 
-    fname = f"Planner_Recommendations_{date.today().isoformat()}.xlsx"
-    return StreamingResponse(
-        buff,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'}
-    )
+        fname = f"Planner_Recommendations_{date.today().isoformat()}.xlsx"
+        return StreamingResponse(
+            buff,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'}
+        )
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    except Exception:
+        logging.exception("Unexpected error while processing Excel upload")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Внутренняя ошибка при обработке Excel"}
+        )
 
 
 # ---------------------- Локальный запуск ----------------------
