@@ -52,7 +52,7 @@
 
       tr.innerHTML = `
         <td><input type="number" name="in_transit_qty" min="1" step="1" placeholder="например, 500" required></td>
-        <td><input type="date"   name="in_transit_eta" required></td>
+        <td><input type="date"   name="in_transit_eta" placeholder="например, 2025-11-01" required></td>
         <td style="text-align:right;"><button type="button" class="btn-secondary" onclick="this.closest('tr').remove()">Удалить</button></td>
       `;
       tbody.appendChild(tr);
@@ -345,26 +345,26 @@
 
   <form method="post" action="/calc_excel">
     <div class="row-1">
-      <label>SKU:
+      <label>Артикул:
         <input type="text" name="sku" placeholder="Например: SMK_iPhone15_16" required>
       </label>
     </div>
 
     <div class="row">
-      <label>Stock FF:
+      <label>Остаток на ФФ:
         <input type="number" name="stock_ff" min="0" placeholder="например, 1000" required>
       </label>
-      <label>Stock MP:
+      <label>Остаток на МП:
         <input type="number" name="stock_mp" min="0" placeholder="например, 1700" required>
       </label>
     </div>
 
     <div class="row">
-      <label>План продаж, ед/день:
-        <input type="number" name="plan_sales_per_day" min="0" step="0.01" placeholder="например, 120" required>
+      <label>План продаж, шт/день:
+        <input type="number" name="plan_sales_per_day" min="0" step="0.01" placeholder="например, 12.5" required>
         <small>Можно дробное (например, 12.5)</small>
       </label>
-      <label>MOQ step:
+      <label>Кратность заказа (MOQ):
         <input type="number" name="moq_step" min="1" step="1" placeholder="например, 250" required>
       </label>
     </div>
@@ -373,13 +373,13 @@
       <label>Срок производства, дней:
         <input type="number" name="prod_lead_time_days" min="0" placeholder="например, 15" required>
       </label>
-      <label>Китай → МСК, дней:
+      <label>Доставка Китай → МСК, дней:
         <input type="number" name="lead_time_cn_msk" min="0" placeholder="например, 25" required>
       </label>
     </div>
 
     <div class="row">
-      <label>МСК → МП, дней:
+      <label>Доставка МСК → МП, дней:
         <input type="number" name="lead_time_msk_mp" min="0" placeholder="например, 7" required>
       </label>
       <label>Неснижаемый остаток на МП:
@@ -396,7 +396,7 @@
         <thead>
           <tr>
             <th>Количество, шт</th>
-            <th>ETA на ФФ (YYYY-MM-DD)</th>
+            <th>Дата прибытия на ФФ (ГГГГ-ММ-ДД)</th>
             <th></th>
           </tr>
         </thead>
