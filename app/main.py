@@ -29,7 +29,15 @@ TEMPLATE_FILE = Path(__file__).parent / "static" / "templates" / "Input_Template
 # --- UI: форма ввода ---
 @app.get("/", response_class=HTMLResponse)
 async def input_form(request: Request):
-    return templates.TemplateResponse("input_form.html", {"request": request})
+    return templates.TemplateResponse(
+        "input_form.html",
+        {"request": request, "algo_version": ALGO_VERSION},
+    )
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "algo_version": ALGO_VERSION}
 
 
 # ---------------------- Скачивание шаблона ----------------------
