@@ -105,14 +105,22 @@
         fetch('/upload_excel', {
           method: 'POST',
           body: formData
-        }).then(response => {
+        }).then(async response => {
           if (!response.ok) {
-            setStatus('error', '❌ Ошибка при обработке файла');
+            let detailMessage = null;
+            try {
+              const data = await response.json();
+              detailMessage = data && data.detail ? String(data.detail) : null;
+            } catch (parseError) {
+              console.error('Failed to parse error response', parseError);
+            }
+            setStatus('error', detailMessage ? `❌ ${detailMessage}` : '❌ Ошибка при обработке файла');
             throw new Error(`Upload failed with status ${response.status}`);
           }
           const disposition = response.headers.get('Content-Disposition');
           const filename = extractFilename(disposition) || getDefaultFilename();
-          return response.blob().then(blob => ({ blob, filename }));
+          const blob = await response.blob();
+          return { blob, filename };
         }).then(({ blob, filename }) => {
           const url = window.URL.createObjectURL(blob);
           const link = document.createElement('a');
@@ -125,7 +133,9 @@
           setStatus('success', '✅ Файл успешно рассчитан и скачан');
         }).catch(err => {
           console.error(err);
-          setStatus('error', '❌ Ошибка при обработке файла');
+          if (!statusEl.classList.contains('error')) {
+            setStatus('error', '❌ Ошибка при обработке файла');
+          }
         }).finally(() => {
           fileInput.value = '';
         });
