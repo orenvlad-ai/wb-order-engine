@@ -63,18 +63,88 @@
       // одна стартовая строка
       addTransitRow();
 
-      const dropzone = document.getElementById('excelDropzone');
-      const fileInput = document.getElementById('excelFileInput');
-      const statusEl = document.getElementById('uploadStatus');
+      const form = document.querySelector('form');
+      const submitButton = form ? form.querySelector('button[type="submit"]') : null;
+      const calcStatusEl = document.getElementById('calcStatus');
 
-      if (!dropzone || !fileInput || !statusEl) { return; }
-
-      const setStatus = (state, message) => {
-        statusEl.className = `upload-status${state ? ' ' + state : ''}`;
-        statusEl.textContent = message || '';
+      const setCalcStatus = (state, message) => {
+        if (!calcStatusEl) { return; }
+        calcStatusEl.className = `upload-status${state ? ' ' + state : ''}`;
+        calcStatusEl.textContent = message || '';
       };
 
-      setStatus('', '');
+      setCalcStatus('', '');
+
+      let isCalculating = false;
+      let originalButtonContent = '';
+
+      if (form && submitButton) {
+        originalButtonContent = submitButton.innerHTML;
+
+        form.addEventListener('submit', (event) => {
+          if (isCalculating) {
+            event.preventDefault();
+            return;
+          }
+
+          if (!validateForm(event)) {
+            return;
+          }
+
+          event.preventDefault();
+
+          isCalculating = true;
+          submitButton.disabled = true;
+          submitButton.innerHTML = '🧮 Считаем…';
+          setCalcStatus('loading', '⏳ Выполняем расчёт…');
+
+          const formData = new FormData(form);
+
+          fetch(form.action, {
+            method: form.method || 'POST',
+            body: formData,
+            credentials: 'same-origin'
+          }).then(async response => {
+            if (!response.ok) {
+              let detailMessage = null;
+              try {
+                const data = await response.json();
+                detailMessage = data && data.detail ? String(data.detail) : null;
+              } catch (parseError) {
+                console.error('Failed to parse calculation error response', parseError);
+              }
+              const errorMessage = detailMessage ? `❌ ${detailMessage}` : '❌ Ошибка при расчёте файла';
+              setCalcStatus('error', errorMessage);
+              throw new Error(`Calculation failed with status ${response.status}`);
+            }
+
+            const disposition = response.headers.get('Content-Disposition');
+            const filename = extractFilename(disposition) || getDefaultFilename();
+            const blob = await response.blob();
+            return { blob, filename };
+          }).then(({ blob, filename }) => {
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            setCalcStatus('success', '✅ Расчёт готов, файл скачан');
+          }).catch(error => {
+            console.error('Calculation request failed', error);
+            if (!calcStatusEl || calcStatusEl.classList.contains('error')) {
+              return;
+            }
+            setCalcStatus('error', '❌ Ошибка при расчёте файла');
+          }).finally(() => {
+            submitButton.disabled = false;
+            submitButton.innerHTML = originalButtonContent;
+            isCalculating = false;
+          });
+        });
+      }
 
       const extractFilename = (disposition) => {
         if (!disposition) { return null; }
@@ -89,6 +159,19 @@
         const today = new Date().toISOString().slice(0, 10);
         return `Planner_Recommendations_${today}.xlsx`;
       };
+
+      const dropzone = document.getElementById('excelDropzone');
+      const fileInput = document.getElementById('excelFileInput');
+      const statusEl = document.getElementById('uploadStatus');
+
+      if (!dropzone || !fileInput || !statusEl) { return; }
+
+      const setStatus = (state, message) => {
+        statusEl.className = `upload-status${state ? ' ' + state : ''}`;
+        statusEl.textContent = message || '';
+      };
+
+      setStatus('', '');
 
       const uploadFile = (file) => {
         if (!file) { return; }
@@ -186,7 +269,7 @@
 <body>
   <h1>WB Order Engine</h1>
 
-  <form method="post" action="/calc_excel" onsubmit="return validateForm(event)">
+  <form method="post" action="/calc_excel">
     <div class="row-1">
       <label>SKU:
         <input type="text" name="sku" placeholder="Например: SMK_iPhone15_16" required>
@@ -252,6 +335,8 @@
       <button type="submit">📊 Рассчитать и скачать Excel</button>
     </div>
   </form>
+
+  <div id="calcStatus" class="upload-status"></div>
 
   <div class="upload-section">
     <div id="excelDropzone" class="dropzone" tabindex="0" role="button" aria-label="Загрузка Excel файла">
