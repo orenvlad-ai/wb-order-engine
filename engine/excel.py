@@ -11,18 +11,18 @@ from .config import ALGO_VERSION
 
 
 RECOMMENDATION_HEADERS = [
-    "sku",
-    "H_days",
-    "demand_H",
-    "inbound",
-    "coverage",
-    "target",
-    "shortage",
-    "moq_step",
-    "order_qty",
-    "reduce_plan_to",
-    "comment",
-    "algo_version",
+    "Артикул",
+    "Горизонт планирования",
+    "Спрос",
+    "В пути",
+    "Покрытие, шт",
+    "Цель, шт",
+    "Дефицит, шт",
+    "Кратность",
+    "Реком. заказ, шт",
+    "Снизить план до",
+    "Комментарий",
+    "Алго",
 ]
 
 LOG_HEADERS = [
