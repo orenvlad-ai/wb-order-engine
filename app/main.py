@@ -9,11 +9,12 @@ from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse, JSO
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
-from openpyxl import Workbook, load_workbook
+from openpyxl import load_workbook
 
 from engine.calc import calculate
 from engine.models import SkuInput, InTransitItem
 from engine.config import ALGO_VERSION
+from engine.excel import recommendations_to_excel
 import uvicorn
 import logging
 
@@ -151,34 +152,16 @@ def _parse_input_excel(content: bytes) -> Tuple[List[SkuInput], List[InTransitIt
     return items, in_transit
 
 
-def _excel_from_recs(recs):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Recommendations"
+def _excel_from_recs(recs, *, sku_count: int, in_transit_count: int):
+    recs_list = list(recs)
+    total_volume = sum((getattr(r, "order_qty", 0) or 0) for r in recs_list)
 
-    headers = [
-        "sku", "H_days", "demand_H", "inbound", "coverage",
-        "target", "shortage", "moq_step", "order_qty",
-        "reduce_plan_to", "comment", "algo_version"
-    ]
-    ws.append(headers)
-
-    for r in recs:
-        ws.append([
-            r.sku, r.H_days, r.demand_H, r.inbound, r.coverage,
-            r.target, r.shortage, r.moq_step, r.order_qty,
-            getattr(r, "reduce_plan_to", None),
-            r.comment, r.algo_version
-        ])
-
-    for col in ws.columns:
-        max_len = max((len(str(c.value)) if c.value is not None else 0) for c in col)
-        ws.column_dimensions[col[0].column_letter].width = min(max(10, max_len + 2), 40)
-
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf
+    return recommendations_to_excel(
+        recs_list,
+        sku_count=sku_count,
+        in_transit_count=in_transit_count,
+        total_volume=total_volume,
+    )
 
 
 # ---------------------- Ручной ввод -> Excel ----------------------
@@ -217,7 +200,11 @@ async def calc_excel(
         in_transit.append(InTransitItem(sku=item.sku, qty=int(q), eta_cn_msk=eta))
 
     recs = calculate([item], in_transit=in_transit)
-    buff = _excel_from_recs(recs)
+    buff = _excel_from_recs(
+        recs,
+        sku_count=len(recs),
+        in_transit_count=len(in_transit),
+    )
 
     filename = f"Planner_Recommendations_{date.today().isoformat()}.xlsx"
     return StreamingResponse(
@@ -237,7 +224,11 @@ async def upload_excel(file: UploadFile = File(...)):
         content = await file.read()
         items, in_transit = _parse_input_excel(content)
         recs = calculate(items, in_transit)
-        buff = _excel_from_recs(recs)
+        buff = _excel_from_recs(
+            recs,
+            sku_count=len(items),
+            in_transit_count=len(in_transit),
+        )
 
         fname = f"Planner_Recommendations_{date.today().isoformat()}.xlsx"
         return StreamingResponse(
