@@ -20,6 +20,25 @@ SETTINGS_SHEET_NAME = "Настройки заказа"
 INPUT_SHEET_NAMES = ("Input", "Ввод")
 INTRANSIT_SHEET_NAMES = ("InTransit", "Товары в пути")
 
+# Отображения колонок листа Recommendations
+RECOMMENDATION_COLUMN_ALIASES = {
+    "sku": "Артикул",
+    "order_qty": "Рекомендуемый заказ, шт",
+    "shortage": "Нехватка, шт",
+    "target": "Цель запаса, шт",
+    "coverage": "Покрытие, дней",
+    "inbound": "В пути, шт",
+    "demand_H": "Прогноз спроса, шт/день",
+    "H_days": "Горизонт прогноза, дней",
+    "moq_step": "Кратность заказа (MOQ)",
+    "comment": "Комментарий",
+    "algo_version": "Версия алгоритма",
+}
+
+RECOMMENDATION_DISPLAY_TO_INTERNAL = {
+    v: k for k, v in RECOMMENDATION_COLUMN_ALIASES.items()
+}
+
 # Сопоставление русских заголовков с внутренними ключами
 INPUT_COLUMN_ALIASES = {
     "Артикул": "sku",
@@ -323,24 +342,58 @@ def _order_columns(df: pd.DataFrame) -> pd.DataFrame:
     cols = [c for c in _ORDER if c in df.columns] + [c for c in df.columns if c not in _ORDER]
     return df[cols]
 
-def _apply_formats(ws):
+def _find_col_idx_by_internal(ws, internal_key: str) -> int | None:
+    header_rows = list(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+    if not header_rows:
+        return None
+    for idx, value in enumerate(header_rows[0], start=1):
+        if value == internal_key:
+            return idx
+        if RECOMMENDATION_DISPLAY_TO_INTERNAL.get(value) == internal_key:
+            return idx
+    return None
+
+
+def _apply_formats_localized(ws):
+    idx_order = _find_col_idx_by_internal(ws, "order_qty")
+    idx_short = _find_col_idx_by_internal(ws, "shortage")
+    idx_cov = _find_col_idx_by_internal(ws, "coverage")
+    _apply_formats(ws, idx_order=idx_order, idx_short=idx_short, idx_cov=idx_cov)
+
+
+def _apply_formats(
+    ws,
+    *,
+    idx_order: int | None = None,
+    idx_short: int | None = None,
+    idx_cov: int | None = None,
+):
+    header_internal: Dict[int, str] = {}
+
     # Шапка
-    for cell in ws[1]:
+    for idx, cell in enumerate(ws[1], start=1):
+        internal_name = RECOMMENDATION_DISPLAY_TO_INTERNAL.get(cell.value, cell.value)
+        header_internal[idx] = internal_name
         cell.font = _BOLD
         cell.alignment = _CENTER
         cell.fill = _HEADER_FILL
         cell.border = _BORDER
         # краткие подсказки
-        if cell.value == "order_qty":
+        if internal_name == "order_qty":
             cell.comment = Comment("Рекомендованный заказ с кратностью MOQ", "WB Engine")
-        if cell.value == "shortage":
+        if internal_name == "shortage":
             cell.comment = Comment("Нехватка к цели (demand_H + safety_stock)", "WB Engine")
+
+    for col_idx, name in ((idx_order, "order_qty"), (idx_short, "shortage"), (idx_cov, "coverage")):
+        if col_idx and header_internal.get(col_idx) != name:
+            header_internal[col_idx] = name
 
     # Форматы чисел (без десятых)
     int_like = {"H_days","inbound","coverage","target","shortage","moq_step","order_qty","demand_H"}
     for row in ws.iter_rows(min_row=2):
         for cell in row:
-            if cell.column_letter and ws.cell(row=1, column=cell.column).value in int_like:
+            header_value = header_internal.get(cell.column)
+            if cell.column_letter and header_value in int_like:
                 cell.number_format = "0"
             cell.border = _BORDER
             if isinstance(cell.value, str):
@@ -348,11 +401,12 @@ def _apply_formats(ws):
 
     # Подсветка риска: если shortage > 0 → розовым фоном
     # (risk_flag у нас = shortage>0, т.к. отдельного поля нет)
-    shortage_col = None
-    for cell in ws[1]:
-        if cell.value == "shortage":
-            shortage_col = cell.column
-            break
+    if idx_short is None:
+        for col_idx, name in header_internal.items():
+            if name == "shortage":
+                idx_short = col_idx
+                break
+    shortage_col = idx_short
     if shortage_col:
         for r in range(2, ws.max_row + 1):
             val = ws.cell(r, shortage_col).value
@@ -470,9 +524,10 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
             pass
 
         # Пишем Recommendations
-        df_rec.to_excel(w, sheet_name="Recommendations", index=False)
+        df_out = df_rec.rename(columns=RECOMMENDATION_COLUMN_ALIASES)
+        df_out.to_excel(w, sheet_name="Recommendations", index=False)
         ws = w.book["Recommendations"]
-        _apply_formats(ws)
+        _apply_formats_localized(ws)
         ws.freeze_panes = "A2"
 
     return out_buf.getvalue()
