@@ -369,21 +369,29 @@
       </label>
     </div>
 
-    <div class="row">
+    <div class="row-1">
       <label>Срок производства, дней:
         <input type="number" name="prod_lead_time_days" min="0" placeholder="например, 15" required>
-      </label>
-      <label>Доставка Китай → МСК, дней:
-        <input type="number" name="lead_time_cn_msk" min="0" placeholder="например, 25" required>
       </label>
     </div>
 
     <div class="row">
+      <label>Доставка Китай → МСК, дней:
+        <input type="number" name="lead_time_cn_msk" min="0" placeholder="например, 25" required>
+      </label>
       <label>Доставка МСК → МП, дней:
         <input type="number" name="lead_time_msk_mp" min="0" placeholder="например, 7" required>
       </label>
+    </div>
+
+    <div class="row">
+      <label>Неснижаемый остаток на ФФ:
+        <input type="number" name="safety_stock_ff" min="0" placeholder="например, 1000" required>
+        <small>Минимальный остаток на складе продавца (ФФ), не участвующий в продаже.</small>
+      </label>
       <label>Неснижаемый остаток на МП:
         <input type="number" name="safety_stock_mp" min="0" placeholder="например, 1000" required>
+        <small>Минимальный остаток на маркетплейсе, который нельзя проедать.</small>
       </label>
     </div>
 
