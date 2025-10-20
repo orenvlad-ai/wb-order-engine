@@ -20,7 +20,7 @@
     .actions { display:flex; gap:10px; justify-content: flex-end; margin-top: 16px; }
     button { border:0; border-radius:8px; padding:10px 14px; background:#0078D7; color:#fff; cursor:pointer; font-weight:600; }
     button:hover { background:#005fa3; }
-    .btn-secondary { background:#e5e7eb; color:#111; }
+    .btn-secondary { background:#e5e7eb; color:#111; padding:10px 14px; border-radius:8px; text-decoration:none; display:inline-block; font-weight:600; }
     .btn-secondary:hover { background:#d1d5db; }
     small { color:#666; display:block; margin-top:4px; }
     .upload-section { max-width:820px; margin:24px auto 0; }
@@ -415,6 +415,16 @@
 
     <div class="actions">
       <button type="submit">📊 Рассчитать и скачать Excel</button>
+    </div>
+
+    <!-- Новая панель действий: кнопка скачивания шаблона -->
+    <div class="actions" style="justify-content:flex-start; margin-top:12px;">
+      <a
+        class="btn-secondary"
+        href="/download_template"
+        rel="noopener"
+        aria-label="Скачать Excel-шаблон для заполнения"
+      >📥 Скачать шаблон</a>
     </div>
   </form>
 
