@@ -1,7 +1,7 @@
 import os
 
 # Версия алгоритма (будет прокидываться в ответ)
-ALGO_VERSION = os.getenv("ALGO_VERSION", "v0.2-excel")
+ALGO_VERSION = os.getenv("ALGO_VERSION", "v0.6-MVP")
 
 # Мягкий буфер для снижения плана (единиц)
 # Используем, когда считаем рекомендуемое снижение продаж (reduce_plan_to).

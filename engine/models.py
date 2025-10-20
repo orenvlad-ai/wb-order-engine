@@ -1,5 +1,7 @@
-from pydantic import BaseModel, Field
 from datetime import date
+from typing import Optional
+
+from pydantic import BaseModel, Field
 
 class SkuInput(BaseModel):
     sku: str
@@ -28,5 +30,6 @@ class Recommendation(BaseModel):
     shortage: float
     moq_step: int
     order_qty: int
+    reduce_plan_to: Optional[int] = None
     comment: str
     algo_version: str = "v1.2a"
