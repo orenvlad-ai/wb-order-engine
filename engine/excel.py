@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from io import BytesIO
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Sequence
 
 from openpyxl import Workbook
 from openpyxl.styles import Font
@@ -31,6 +31,7 @@ LOG_HEADERS = [
     "sku_count",
     "in_transit_count",
     "total_volume_units",
+    "stocks_info",
 ]
 
 
@@ -51,6 +52,7 @@ def recommendations_to_excel(
     sku_count: Optional[int] = None,
     in_transit_count: int = 0,
     total_volume: Optional[int] = None,
+    log_items: Optional[Sequence] = None,
 ) -> BytesIO:
     wb = Workbook()
     ws = wb.active
@@ -90,12 +92,26 @@ def recommendations_to_excel(
     if total_volume is None:
         total_volume = sum((getattr(r, "order_qty", 0) or 0) for r in recs_list)
 
+    stocks_info = ""
+    if log_items:
+        parts = []
+        for item in log_items:
+            sku = getattr(item, "sku", "")
+            ff = getattr(item, "safety_stock_ff", None)
+            mp = getattr(item, "safety_stock_mp", None)
+            if ff is None and mp is None:
+                continue
+            stocks = f"ff={ff}, mp={mp}"
+            parts.append(f"{sku}: {stocks}" if sku else stocks)
+        stocks_info = "; ".join(parts)
+
     log_ws.append([
         generated_at,
         ALGO_VERSION,
         sku_total,
         in_transit_count,
         total_volume,
+        stocks_info,
     ])
     _auto_width(log_ws, minimum=15, maximum=50)
 

@@ -3,6 +3,7 @@ from datetime import date, datetime
 from typing import Tuple, List
 
 import pandas as pd
+from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.comments import Comment
 
@@ -16,6 +17,7 @@ REQUIRED_INPUT_COLS = [
     "prod_lead_time_days","lead_time_cn_msk","lead_time_msk_mp",
     "safety_stock_mp","moq_step"
 ]
+OPTIONAL_INPUT_COLS = ["safety_stock_ff"]
 REQUIRED_INTRANSIT_COLS = ["sku","qty","eta_cn_msk"]
 
 class BadTemplateError(Exception): ...
@@ -34,11 +36,23 @@ def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
         raise BadTemplateError("Нет листов 'Input' и/или 'InTransit' в файле.") from e
 
     _ensure_columns(df_in, REQUIRED_INPUT_COLS, "Input")
+    for col in OPTIONAL_INPUT_COLS:
+        if col not in df_in.columns:
+            df_in[col] = pd.NA
     _ensure_columns(df_tr, REQUIRED_INTRANSIT_COLS, "InTransit")
 
     items: List[SkuInput] = []
     for r in df_in.to_dict("records"):
         try:
+            safety_stock_mp = int(r["safety_stock_mp"])
+            raw_ff = r.get("safety_stock_ff")
+            if isinstance(raw_ff, str):
+                raw_ff = raw_ff.strip()
+            if pd.isna(raw_ff) or raw_ff == "":
+                safety_stock_ff = safety_stock_mp
+            else:
+                safety_stock_ff = int(raw_ff)
+
             items.append(SkuInput(
                 sku=str(r["sku"]),
                 stock_ff=int(r["stock_ff"]),
@@ -47,7 +61,8 @@ def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
                 prod_lead_time_days=int(r["prod_lead_time_days"]),
                 lead_time_cn_msk=int(r["lead_time_cn_msk"]),
                 lead_time_msk_mp=int(r["lead_time_msk_mp"]),
-                safety_stock_mp=int(r["safety_stock_mp"]),
+                safety_stock_mp=safety_stock_mp,
+                safety_stock_ff=safety_stock_ff,
                 moq_step=int(r["moq_step"]),
             ))
         except (ValueError, ValidationError) as e:
@@ -139,6 +154,72 @@ def _apply_formats(ws):
             widths[idx] = max(widths.get(idx, 0), w)
     for idx, w in widths.items():
         ws.column_dimensions[ws.cell(1, idx).column_letter].width = min(max(w + 2, 10), 60)
+
+
+def _auto_width_template(ws):
+    widths = {}
+    for row in ws.iter_rows(values_only=True):
+        for idx, value in enumerate(row, start=1):
+            length = len(str(value)) if value is not None else 0
+            widths[idx] = max(widths.get(idx, 0), length)
+    for idx, width in widths.items():
+        column = ws.cell(row=1, column=idx).column_letter
+        ws.column_dimensions[column].width = max(width + 2, 10)
+
+
+def generate_input_template() -> io.BytesIO:
+    wb = Workbook()
+
+    input_headers = [
+        "sku",
+        "stock_ff",
+        "stock_mp",
+        "plan_sales_per_day",
+        "prod_lead_time_days",
+        "lead_time_cn_msk",
+        "lead_time_msk_mp",
+        "safety_stock_mp",
+        "safety_stock_ff",
+        "moq_step",
+    ]
+    intransit_headers = ["sku", "qty", "eta_cn_msk"]
+
+    ws_input = wb.active
+    ws_input.title = "Input"
+    ws_input.append(input_headers)
+    for cell in ws_input[1]:
+        cell.font = _BOLD
+
+    ws_input.append([
+        "TEST_SKU",
+        1000,
+        800,
+        12.5,
+        45,
+        18,
+        7,
+        600,
+        500,
+        10,
+    ])
+    _auto_width_template(ws_input)
+
+    ws_transit = wb.create_sheet("InTransit")
+    ws_transit.append(intransit_headers)
+    for cell in ws_transit[1]:
+        cell.font = _BOLD
+
+    ws_transit.append([
+        "TEST_SKU",
+        120,
+        "2025-11-01",
+    ])
+    _auto_width_template(ws_transit)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
 
 def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
     # Конвертируем в DataFrame и отсортируем колонки
