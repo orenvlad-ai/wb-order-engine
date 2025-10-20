@@ -14,7 +14,12 @@ from engine.calc import calculate
 from engine.models import SkuInput, InTransitItem
 from engine.config import ALGO_VERSION
 from engine.excel import recommendations_to_excel
-from adapters.excel_io import generate_input_template
+from adapters.excel_io import (
+    BadTemplateError,
+    build_output,
+    generate_input_template,
+    read_input,
+)
 import uvicorn
 import logging
 
@@ -42,6 +47,16 @@ async def health_check():
 # ---------------------- Скачивание шаблона ----------------------
 @app.get("/download_template")
 async def download_template():
+    buffer = generate_input_template()
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="Input_Template.xlsx"'},
+    )
+
+
+@app.get("/download_input_template")
+async def download_input_template():
     buffer = generate_input_template()
     return StreamingResponse(
         buffer,
@@ -330,23 +345,20 @@ async def upload_excel(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="Ожидается .xlsx файл.")
 
         content = await file.read()
-        items, in_transit = _parse_input_excel(content)
+        items, in_transit = read_input(content)
         recs = calculate(items, in_transit)
-        buff = _excel_from_recs(
-            recs,
-            sku_count=len(items),
-            in_transit_count=len(in_transit),
-            items=items,
-        )
+        out_bytes = build_output(content, recs)
 
         fname = f"Planner_Recommendations_{date.today().isoformat()}.xlsx"
         return StreamingResponse(
-            buff,
+            BytesIO(out_bytes),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="{fname}"'}
         )
     except HTTPException as exc:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    except BadTemplateError as exc:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
     except Exception:
         logging.exception("Unexpected error while processing Excel upload")
         return JSONResponse(
