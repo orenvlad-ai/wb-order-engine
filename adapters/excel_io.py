@@ -318,6 +318,18 @@ def generate_input_template() -> io.BytesIO:
     ])
     _auto_width_template(ws_settings)
 
+    ws_transit = wb.create_sheet("InTransit")
+    ws_transit.append(["sku", "qty", "eta_cn_msk"])
+    for cell in ws_transit[1]:
+        cell.font = _BOLD
+
+    ws_transit.append([
+        "TEST_SKU",
+        120,
+        "2025-11-01",
+    ])
+    _auto_width_template(ws_transit)
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
