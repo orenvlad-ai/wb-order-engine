@@ -1,6 +1,6 @@
 import io
 from datetime import date, datetime
-from typing import Tuple, List
+from typing import Tuple, List, Dict, Any, Optional
 
 import pandas as pd
 from openpyxl import Workbook
@@ -12,61 +12,161 @@ from pydantic import ValidationError
 from engine.models import SkuInput, InTransitItem, Recommendation
 from engine.calc import calculate
 
-REQUIRED_INPUT_COLS = [
-    "sku","stock_ff","stock_mp","plan_sales_per_day",
-    "prod_lead_time_days","lead_time_cn_msk","lead_time_msk_mp",
-    "safety_stock_mp","moq_step"
-]
-OPTIONAL_INPUT_COLS = ["safety_stock_ff"]
+REQUIRED_INPUT_COLS = ["sku", "stock_ff", "stock_mp", "plan_sales_per_day"]
+OPTIONAL_INPUT_COLS = ["safety_stock_ff", "safety_stock_mp"]
 REQUIRED_INTRANSIT_COLS = ["sku","qty","eta_cn_msk"]
+SETTINGS_SHEET_NAME = "Настройки заказа"
+REQUIRED_SETTINGS_COLS = [
+    "prod_lead_time_days",
+    "lead_time_cn_msk",
+    "lead_time_msk_mp",
+    "moq_step_default",
+    "safety_stock_ff_default",
+    "safety_stock_mp_default",
+]
 
 class BadTemplateError(Exception): ...
 
 def _ensure_columns(df: pd.DataFrame, required: List[str], sheet: str):
     missing = [c for c in required if c not in df.columns]
     if missing:
-        raise BadTemplateError(f"Лист '{sheet}': нет колонок {missing}. Проверь шаблон.")
+        raise BadTemplateError(
+            f"На листе '{sheet}' отсутствуют обязательные колонки: {', '.join(missing)}."
+        )
+
+
+def _is_blank(value: Any) -> bool:
+    if pd.isna(value):
+        return True
+    if isinstance(value, str) and not value.strip():
+        return True
+    return False
+
+
+def _parse_int(value: Any, *, sheet: str, column: str, sku: Optional[str] = None) -> int:
+    if _is_blank(value):
+        target = f" для SKU '{sku}'" if sku else ""
+        raise BadTemplateError(
+            f"На листе '{sheet}' колонка '{column}'{target} не заполнена."
+        )
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        target = f" для SKU '{sku}'" if sku else ""
+        raise BadTemplateError(
+            f"На листе '{sheet}' колонка '{column}'{target} должна содержать целое число."
+        )
+
+
+def _parse_float(value: Any, *, sheet: str, column: str, sku: str) -> float:
+    if _is_blank(value):
+        raise BadTemplateError(
+            f"На листе '{sheet}' колонка '{column}' для SKU '{sku}' не заполнена."
+        )
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise BadTemplateError(
+            f"На листе '{sheet}' колонка '{column}' для SKU '{sku}' должна содержать число."
+        )
+
+
+def _read_settings(df_settings: pd.DataFrame) -> Dict[str, int]:
+    # Считываем первую заполненную строку с общими параметрами заказа
+    _ensure_columns(df_settings, REQUIRED_SETTINGS_COLS, SETTINGS_SHEET_NAME)
+    df_clean = df_settings.dropna(how="all")
+    if df_clean.empty:
+        raise BadTemplateError(
+            "Лист 'Настройки заказа' пуст. Заполни строку с параметрами по умолчанию."
+        )
+
+    row = df_clean.iloc[0].to_dict()
+    settings: Dict[str, int] = {}
+    for key in REQUIRED_SETTINGS_COLS:
+        value = row.get(key)
+        settings[key] = _parse_int(value, sheet=SETTINGS_SHEET_NAME, column=key)
+    return settings
 
 def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
     xl = pd.ExcelFile(io.BytesIO(xlsx_bytes))
     try:
         df_in = pd.read_excel(xl, "Input")
-        df_tr = pd.read_excel(xl, "InTransit")
     except ValueError as e:
-        raise BadTemplateError("Нет листов 'Input' и/или 'InTransit' в файле.") from e
+        raise BadTemplateError("В файле нет листа 'Input'.") from e
+
+    try:
+        df_settings = pd.read_excel(xl, SETTINGS_SHEET_NAME)
+    except ValueError as e:
+        raise BadTemplateError("В файле нет листа 'Настройки заказа'.") from e
+
+    df_in = df_in.where(pd.notna(df_in), None)
+    df_settings = df_settings.where(pd.notna(df_settings), None)
 
     _ensure_columns(df_in, REQUIRED_INPUT_COLS, "Input")
     for col in OPTIONAL_INPUT_COLS:
         if col not in df_in.columns:
-            df_in[col] = pd.NA
-    _ensure_columns(df_tr, REQUIRED_INTRANSIT_COLS, "InTransit")
+            df_in[col] = None
+
+    settings = _read_settings(df_settings)
+
+    try:
+        df_tr = pd.read_excel(xl, "InTransit")
+        df_tr = df_tr.where(pd.notna(df_tr), None)
+        _ensure_columns(df_tr, REQUIRED_INTRANSIT_COLS, "InTransit")
+    except ValueError:
+        df_tr = pd.DataFrame(columns=REQUIRED_INTRANSIT_COLS)
+    except BadTemplateError:
+        raise
 
     items: List[SkuInput] = []
+    moq_step_default = settings["moq_step_default"]
+    safety_stock_ff_default = settings["safety_stock_ff_default"]
+    safety_stock_mp_default = settings["safety_stock_mp_default"]
+    prod_lead_time_days = settings["prod_lead_time_days"]
+    lead_time_cn_msk = settings["lead_time_cn_msk"]
+    lead_time_msk_mp = settings["lead_time_msk_mp"]
+
     for r in df_in.to_dict("records"):
+        if all(_is_blank(v) for v in r.values()):
+            continue
+        sku = str(r.get("sku") or "").strip()
+        if not sku:
+            raise BadTemplateError("На листе 'Input' есть строка без SKU. Удали пустые строки.")
         try:
-            safety_stock_mp = int(r["safety_stock_mp"])
-            raw_ff = r.get("safety_stock_ff")
-            if isinstance(raw_ff, str):
-                raw_ff = raw_ff.strip()
-            if pd.isna(raw_ff) or raw_ff == "":
-                safety_stock_ff = safety_stock_mp
+            stock_ff = _parse_int(r.get("stock_ff"), sheet="Input", column="stock_ff", sku=sku)
+            stock_mp = _parse_int(r.get("stock_mp"), sheet="Input", column="stock_mp", sku=sku)
+            plan_sales_per_day = _parse_float(
+                r.get("plan_sales_per_day"), sheet="Input", column="plan_sales_per_day", sku=sku
+            )
+
+            raw_mp = r.get("safety_stock_mp")
+            if _is_blank(raw_mp):
+                safety_stock_mp = safety_stock_mp_default  # пусто → берём дефолт из настроек
             else:
-                safety_stock_ff = int(raw_ff)
+                safety_stock_mp = _parse_int(raw_mp, sheet="Input", column="safety_stock_mp", sku=sku)
+
+            raw_ff = r.get("safety_stock_ff")
+            if _is_blank(raw_ff):
+                safety_stock_ff = safety_stock_ff_default  # пусто → берём дефолт из настроек
+            else:
+                safety_stock_ff = _parse_int(raw_ff, sheet="Input", column="safety_stock_ff", sku=sku)
 
             items.append(SkuInput(
-                sku=str(r["sku"]),
-                stock_ff=int(r["stock_ff"]),
-                stock_mp=int(r["stock_mp"]),
-                plan_sales_per_day=float(r["plan_sales_per_day"]),
-                prod_lead_time_days=int(r["prod_lead_time_days"]),
-                lead_time_cn_msk=int(r["lead_time_cn_msk"]),
-                lead_time_msk_mp=int(r["lead_time_msk_mp"]),
+                sku=sku,
+                stock_ff=stock_ff,
+                stock_mp=stock_mp,
+                plan_sales_per_day=plan_sales_per_day,
+                prod_lead_time_days=prod_lead_time_days,
+                lead_time_cn_msk=lead_time_cn_msk,
+                lead_time_msk_mp=lead_time_msk_mp,
                 safety_stock_mp=safety_stock_mp,
                 safety_stock_ff=safety_stock_ff,
-                moq_step=int(r["moq_step"]),
+                moq_step=moq_step_default,
             ))
         except (ValueError, ValidationError) as e:
-            raise BadTemplateError(f"Строка Input для sku={r.get('sku')} содержит неверные данные.") from e
+            raise BadTemplateError(
+                f"На листе 'Input' строка для SKU '{sku}' содержит неверные данные."
+            ) from e
 
     trans: List[InTransitItem] = []
     for r in df_tr.to_dict("records"):
@@ -175,14 +275,17 @@ def generate_input_template() -> io.BytesIO:
         "stock_ff",
         "stock_mp",
         "plan_sales_per_day",
+        "safety_stock_ff",
+        "safety_stock_mp",
+    ]
+    settings_headers = [
         "prod_lead_time_days",
         "lead_time_cn_msk",
         "lead_time_msk_mp",
-        "safety_stock_mp",
-        "safety_stock_ff",
-        "moq_step",
+        "moq_step_default",
+        "safety_stock_ff_default",
+        "safety_stock_mp_default",
     ]
-    intransit_headers = ["sku", "qty", "eta_cn_msk"]
 
     ws_input = wb.active
     ws_input.title = "Input"
@@ -195,26 +298,25 @@ def generate_input_template() -> io.BytesIO:
         1000,
         800,
         12.5,
-        45,
-        18,
-        7,
-        600,
-        500,
-        10,
+        "",  # override не задан
+        "",  # override не задан
     ])
     _auto_width_template(ws_input)
 
-    ws_transit = wb.create_sheet("InTransit")
-    ws_transit.append(intransit_headers)
-    for cell in ws_transit[1]:
+    ws_settings = wb.create_sheet(SETTINGS_SHEET_NAME)
+    ws_settings.append(settings_headers)
+    for cell in ws_settings[1]:
         cell.font = _BOLD
 
-    ws_transit.append([
-        "TEST_SKU",
-        120,
-        "2025-11-01",
+    ws_settings.append([
+        45,
+        18,
+        5,
+        10,
+        600,
+        500,
     ])
-    _auto_width_template(ws_transit)
+    _auto_width_template(ws_settings)
 
     buf = io.BytesIO()
     wb.save(buf)
