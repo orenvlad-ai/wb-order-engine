@@ -10,6 +10,7 @@ class SkuInput(BaseModel):
     lead_time_cn_msk: int = Field(ge=0)
     lead_time_msk_mp: int = Field(ge=0)
     safety_stock_mp: int = Field(ge=0)
+    safety_stock_ff: int = Field(ge=0)
     moq_step: int = Field(ge=1)
 
 class InTransitItem(BaseModel):

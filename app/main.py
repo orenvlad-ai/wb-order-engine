@@ -2,10 +2,9 @@
 from datetime import date, datetime
 from io import BytesIO
 from typing import List, Tuple
-from pathlib import Path
 
 from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
@@ -15,6 +14,7 @@ from engine.calc import calculate
 from engine.models import SkuInput, InTransitItem
 from engine.config import ALGO_VERSION
 from engine.excel import recommendations_to_excel
+from adapters.excel_io import generate_input_template
 import uvicorn
 import logging
 
@@ -24,9 +24,6 @@ app = FastAPI(title="WB Order Engine")
 # --- Шаблоны и статика ---
 templates = Jinja2Templates(directory="app/templates")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-
-# --- Путь к Excel-шаблону ---
-TEMPLATE_FILE = Path(__file__).parent / "static" / "templates" / "Input_Template_Items_InTransit.xlsx"
 
 # --- UI: форма ввода ---
 @app.get("/", response_class=HTMLResponse)
@@ -45,12 +42,11 @@ async def health_check():
 # ---------------------- Скачивание шаблона ----------------------
 @app.get("/download_template")
 async def download_template():
-    if not TEMPLATE_FILE.exists():
-        raise HTTPException(status_code=404, detail="Template not found")
-    return FileResponse(
-        path=str(TEMPLATE_FILE),
+    buffer = generate_input_template()
+    return StreamingResponse(
+        buffer,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename="Input_Template_Items_InTransit.xlsx",
+        headers={"Content-Disposition": 'attachment; filename="Input_Template_Items_InTransit.xlsx"'},
     )
 
 
@@ -59,6 +55,7 @@ REQUIRED_ITEMS_COLS = [
     "sku", "stock_ff", "stock_mp", "plan_sales_per_day", "prod_lead_time_days",
     "lead_time_cn_msk", "lead_time_msk_mp", "safety_stock_mp", "moq_step"
 ]
+OPTIONAL_ITEMS_COLS = ["safety_stock_ff"]
 INTRANSIT_COLS = ["sku", "qty", "eta_cn_msk"]
 
 
@@ -79,6 +76,7 @@ def _read_items(ws) -> List[SkuInput]:
         raise HTTPException(status_code=400, detail=f"Лист 'Items': нет колонок: {', '.join(missing)}")
 
     idx = {name: headers.index(name) for name in REQUIRED_ITEMS_COLS}
+    opt_idx = {name: headers.index(name) for name in OPTIONAL_ITEMS_COLS if name in headers}
     items: List[SkuInput] = []
 
     for row in ws.iter_rows(min_row=2, values_only=True):
@@ -90,6 +88,7 @@ def _read_items(ws) -> List[SkuInput]:
             return row[j]
 
         try:
+            safety_stock_mp_val = int(get("safety_stock_mp") or 0)
             items.append(SkuInput(
                 sku=str(get("sku")).strip(),
                 stock_ff=int(get("stock_ff") or 0),
@@ -98,7 +97,8 @@ def _read_items(ws) -> List[SkuInput]:
                 prod_lead_time_days=int(get("prod_lead_time_days") or 0),
                 lead_time_cn_msk=int(get("lead_time_cn_msk") or 0),
                 lead_time_msk_mp=int(get("lead_time_msk_mp") or 0),
-                safety_stock_mp=int(get("safety_stock_mp") or 0),
+                safety_stock_mp=safety_stock_mp_val,
+                safety_stock_ff=_resolve_safety_stock_ff(row, opt_idx, safety_stock_mp_val),
                 moq_step=int(get("moq_step") or 1),
             ))
         except Exception as e:
@@ -136,6 +136,20 @@ def _read_intransit(ws) -> List[InTransitItem]:
     return rows
 
 
+def _resolve_safety_stock_ff(row, opt_idx, fallback: int) -> int:
+    idx = opt_idx.get("safety_stock_ff")
+    if idx is None:
+        return fallback
+    value = row[idx]
+    if value is None:
+        return fallback
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return fallback
+    return int(value)
+
+
 def _parse_input_excel(content: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
     try:
         wb = load_workbook(filename=BytesIO(content), data_only=True)
@@ -152,7 +166,7 @@ def _parse_input_excel(content: bytes) -> Tuple[List[SkuInput], List[InTransitIt
     return items, in_transit
 
 
-def _excel_from_recs(recs, *, sku_count: int, in_transit_count: int):
+def _excel_from_recs(recs, *, sku_count: int, in_transit_count: int, items: List[SkuInput]):
     recs_list = list(recs)
     total_volume = sum((getattr(r, "order_qty", 0) or 0) for r in recs_list)
 
@@ -161,6 +175,7 @@ def _excel_from_recs(recs, *, sku_count: int, in_transit_count: int):
         sku_count=sku_count,
         in_transit_count=in_transit_count,
         total_volume=total_volume,
+        log_items=items,
     )
 
 
@@ -174,6 +189,7 @@ async def calc_excel(
     prod_lead_time_days: int = Form(...),
     lead_time_cn_msk: int = Form(...),
     lead_time_msk_mp: int = Form(...),
+    safety_stock_ff: int = Form(...),
     safety_stock_mp: int = Form(...),
     moq_step: int = Form(...),
 
@@ -188,6 +204,7 @@ async def calc_excel(
         prod_lead_time_days=prod_lead_time_days,
         lead_time_cn_msk=lead_time_cn_msk,
         lead_time_msk_mp=lead_time_msk_mp,
+        safety_stock_ff=safety_stock_ff,
         safety_stock_mp=safety_stock_mp,
         moq_step=moq_step,
     )
@@ -204,6 +221,7 @@ async def calc_excel(
         recs,
         sku_count=len(recs),
         in_transit_count=len(in_transit),
+        items=[item],
     )
 
     filename = f"Planner_Recommendations_{date.today().isoformat()}.xlsx"
@@ -228,6 +246,7 @@ async def upload_excel(file: UploadFile = File(...)):
             recs,
             sku_count=len(items),
             in_transit_count=len(in_transit),
+            items=items,
         )
 
         fname = f"Planner_Recommendations_{date.today().isoformat()}.xlsx"
