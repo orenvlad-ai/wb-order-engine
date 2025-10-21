@@ -60,27 +60,39 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         else:
             days_until_next_inbound = max((next_eta_mp - t).days, 0)
 
-        coverage_days = (
+        on_hand = x.stock_ff + x.stock_mp
+        oos_threshold = (x.oos_safety_mp_pct / 100.0) * x.safety_stock_mp
+        usable = max(0.0, on_hand - oos_threshold)
+        coverage_days_on_hand = (
             float("inf")
             if x.plan_sales_per_day <= 0
-            else coverage / x.plan_sales_per_day
+            else usable / x.plan_sales_per_day
         )
 
-        if coverage_days < days_until_next_inbound:
+        if coverage_days_on_hand < days_until_next_inbound:
             stock_status = "⚠️ Не хватает до поставки"
             denom = max(days_until_next_inbound, 1)
-            reduce_plan_to = max(
-                0.0,
-                (coverage - x.safety_stock_ff - x.safety_stock_mp) / denom,
+            max_daily = usable / denom
+            reduce_plan_to = float(
+                max(
+                    0.0,
+                    math.floor(
+                        min(
+                            x.plan_sales_per_day,
+                            max_daily,
+                        )
+                    ),
+                )
             )
         else:
             stock_status = "✅ Запаса хватает до поставки"
             reduce_plan_to = None
 
         comment = (
-            f"H={H}; спрос={demand:.0f}; в_пути={inbound}; "
-            f"покрытие={coverage}; цель={target:.0f}; нехватка={shortage:.0f}; "
-            f"статус={stock_status}"
+            f"H={H}д; plan={x.plan_sales_per_day}/д; inbound={inbound}; "
+            f"on_hand={on_hand}; oos_pct={x.oos_safety_mp_pct}%; usable={usable}; "
+            f"next_eta_mp={next_eta_mp}; target={target}; shortage={shortage}; "
+            f"moq={x.moq_step}; order={order}; status='{stock_status}'"
         )
 
         recs.append(Recommendation(

@@ -12,6 +12,7 @@ class SkuInput(BaseModel):
     prod_lead_time_days: int = Field(ge=0)
     lead_time_cn_msk: int = Field(ge=0)
     lead_time_msk_mp: int = Field(ge=0)
+    oos_safety_mp_pct: float = Field(ge=0, le=100, default=5.0)
     safety_stock_mp: int = Field(ge=0)
     safety_stock_ff: int = Field(ge=0)
     moq_step: int = Field(ge=1)

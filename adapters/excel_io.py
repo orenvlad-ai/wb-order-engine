@@ -62,6 +62,7 @@ SETTINGS_COLUMN_ALIASES = {
     "Китай→МСК, дней": "lead_time_cn_msk",
     "МСК→МП, дней": "lead_time_msk_mp",
     "Кратность (MOQ)": "moq_step_default",
+    "Порог несниж. МП при OOS, %": "oos_safety_mp_pct",
     "Дефолт. несниж. ФФ": "safety_stock_ff_default",
     "Дефолт. несниж. МП": "safety_stock_mp_default",
 }
@@ -87,6 +88,7 @@ SETTINGS_COLUMN_DISPLAY = {
     "lead_time_cn_msk": "Китай→МСК, дней",
     "lead_time_msk_mp": "МСК→МП, дней",
     "moq_step_default": "Кратность (MOQ)",
+    "oos_safety_mp_pct": "Порог несниж. МП при OOS, %",
     "safety_stock_ff_default": "Дефолт. несниж. ФФ",
     "safety_stock_mp_default": "Дефолт. несниж. МП",
 }
@@ -95,6 +97,7 @@ REQUIRED_SETTINGS_COLS = [
     "lead_time_cn_msk",
     "lead_time_msk_mp",
     "moq_step_default",
+    "oos_safety_mp_pct",
 ]
 OPTIONAL_SETTINGS_COLS = [
     "safety_stock_ff_default",
@@ -154,7 +157,7 @@ def _parse_float(value: Any, *, sheet: str, column: str, sku: str) -> float:
         )
 
 
-def _read_settings(df_settings: pd.DataFrame) -> Dict[str, int]:
+def _read_settings(df_settings: pd.DataFrame) -> Dict[str, Any]:
     # Считываем первую заполненную строку с общими параметрами заказа
     _ensure_columns(
         df_settings,
@@ -169,14 +172,23 @@ def _read_settings(df_settings: pd.DataFrame) -> Dict[str, int]:
         )
 
     row = df_clean.iloc[0].to_dict()
-    settings: Dict[str, int] = {}
+    settings: Dict[str, Any] = {}
     for key in REQUIRED_SETTINGS_COLS:
         value = row.get(key)
-        settings[key] = _parse_int(
-            value,
-            sheet=SETTINGS_SHEET_NAME,
-            column=SETTINGS_COLUMN_DISPLAY.get(key, key),
-        )
+        if key == "oos_safety_mp_pct":
+            value = 5 if _is_blank(value) else value
+            settings[key] = _parse_float(
+                value,
+                sheet=SETTINGS_SHEET_NAME,
+                column=SETTINGS_COLUMN_DISPLAY.get(key, key),
+                sku="*",
+            )
+        else:
+            settings[key] = _parse_int(
+                value,
+                sheet=SETTINGS_SHEET_NAME,
+                column=SETTINGS_COLUMN_DISPLAY.get(key, key),
+            )
     for key in OPTIONAL_SETTINGS_COLS:
         if key in df_settings.columns:
             value = row.get(key)
@@ -244,6 +256,7 @@ def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
     moq_step_default = settings["moq_step_default"]
     safety_stock_ff_default = settings["safety_stock_ff_default"]
     safety_stock_mp_default = settings["safety_stock_mp_default"]
+    oos_safety_mp_pct = float(settings.get("oos_safety_mp_pct", 5))
     prod_lead_time_days = settings["prod_lead_time_days"]
     lead_time_cn_msk = settings["lead_time_cn_msk"]
     lead_time_msk_mp = settings["lead_time_msk_mp"]
@@ -306,6 +319,7 @@ def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
                 prod_lead_time_days=prod_lead_time_days,
                 lead_time_cn_msk=lead_time_cn_msk,
                 lead_time_msk_mp=lead_time_msk_mp,
+                oos_safety_mp_pct=oos_safety_mp_pct,
                 safety_stock_mp=safety_stock_mp,
                 safety_stock_ff=safety_stock_ff,
                 moq_step=moq_step_default,
@@ -469,6 +483,7 @@ def generate_input_template() -> io.BytesIO:
         "Китай→МСК, дней",
         "МСК→МП, дней",
         "Кратность (MOQ)",
+        "Порог несниж. МП при OOS, %",
     ]
 
     ws_input = wb.active
@@ -497,6 +512,7 @@ def generate_input_template() -> io.BytesIO:
         18,
         5,
         10,
+        5,
     ])
     _auto_width_template(ws_settings)
 
