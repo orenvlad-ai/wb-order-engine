@@ -31,6 +31,8 @@ RECOMMENDATION_COLUMN_ALIASES = {
     "demand_H": "Спрос за горизонт, шт",
     "H_days": "Горизонт прогноза, дней",
     "moq_step": "Кратность заказа (MOQ)",
+    "stock_status": "Статус запаса",
+    "reduce_plan_to": "Рекоменд. план, шт/день",
     "comment": "Комментарий",
     "algo_version": "Версия алгоритма",
 }
@@ -93,6 +95,8 @@ REQUIRED_SETTINGS_COLS = [
     "lead_time_cn_msk",
     "lead_time_msk_mp",
     "moq_step_default",
+]
+OPTIONAL_SETTINGS_COLS = [
     "safety_stock_ff_default",
     "safety_stock_mp_default",
 ]
@@ -173,6 +177,16 @@ def _read_settings(df_settings: pd.DataFrame) -> Dict[str, int]:
             sheet=SETTINGS_SHEET_NAME,
             column=SETTINGS_COLUMN_DISPLAY.get(key, key),
         )
+    for key in OPTIONAL_SETTINGS_COLS:
+        if key in df_settings.columns:
+            value = row.get(key)
+            settings[key] = _parse_int(
+                value,
+                sheet=SETTINGS_SHEET_NAME,
+                column=SETTINGS_COLUMN_DISPLAY.get(key, key),
+            )
+        else:
+            settings[key] = 0
     return settings
 
 def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
@@ -335,7 +349,8 @@ _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 # Порядок колонок (берём те, что реально есть в данных)
 _ORDER = [
     "sku", "order_qty", "shortage", "target", "coverage", "inbound",
-    "demand_H", "H_days", "moq_step", "comment", "algo_version"
+    "demand_H", "H_days", "moq_step", "stock_status", "reduce_plan_to",
+    "comment", "algo_version"
 ]
 
 def _order_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -454,8 +469,6 @@ def generate_input_template() -> io.BytesIO:
         "Китай→МСК, дней",
         "МСК→МП, дней",
         "Кратность (MOQ)",
-        "Дефолт. несниж. ФФ",
-        "Дефолт. несниж. МП",
     ]
 
     ws_input = wb.active
@@ -484,8 +497,6 @@ def generate_input_template() -> io.BytesIO:
         18,
         5,
         10,
-        600,
-        500,
     ])
     _auto_width_template(ws_settings)
 
