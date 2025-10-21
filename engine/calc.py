@@ -102,12 +102,15 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         shortage = max(0.0, target - coverage)
         order_qty = _order_qty(shortage, x.moq_step)
 
+        reduce_plan_to_display = reduce_plan_to if stock_status.startswith("⚠️") else "–"
+        dual_plan_tag = "⚙️ dual-plan" if stock_status.startswith("⚠️") else "–"
+
         comment = (
             f"H={H}д; plan_sales_per_day={x.plan_sales_per_day}; inbound={inbound}; "
             f"on_hand={on_hand}; usable={usable}; oos_pct={x.oos_safety_mp_pct}%; "
             f"next_eta_mp={next_eta_mp}; demand_H={demand_H}; H_days={H}; "
-            f"days_until_next_inbound={days_until_next_inbound}; reduce_plan_to={reduce_plan_to}; "
-            f"target={target}; shortage={shortage}; order_qty={order_qty}; status='{stock_status}'"
+            f"days_until_next_inbound={days_until_next_inbound}; reduce_plan_to={reduce_plan_to_display}; "
+            f"target={target}; shortage={shortage}; order_qty={order_qty}; status='{stock_status}'; {dual_plan_tag}"
         )
 
         recs.append(Recommendation(
@@ -121,7 +124,7 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             moq_step=x.moq_step,
             order_qty=order_qty,
             stock_status=stock_status,
-            reduce_plan_to=reduce_plan_to,
+            reduce_plan_to=reduce_plan_to_display,
             comment=comment,
             algo_version=ALGO_VERSION
         ))
