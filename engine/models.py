@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Optional
+from typing import Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -35,6 +35,6 @@ class Recommendation(BaseModel):
     moq_step: int
     order_qty: int
     stock_status: Optional[str] = None
-    reduce_plan_to: Optional[float] = None
+    reduce_plan_to: Optional[Union[float, str]] = None
     comment: str
     algo_version: str = "v1.2a"
