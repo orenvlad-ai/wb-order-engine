@@ -51,8 +51,10 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         )
         coverage = x.stock_ff + x.stock_mp + inbound
 
+        # Определяем дни до ближайшей поставки на МП.
+        # Если поставки нет, считаем, что доживать нужно ВЕСЬ горизонт (H).
         if next_eta_mp is None:
-            days_until_next_inbound: float = float("inf")
+            days_until_next_inbound: float = H
         else:
             days_until_next_inbound = max((next_eta_mp - t).days, 0)
 
@@ -89,8 +91,6 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
                 reduce_plan_to if reduce_plan_to is not None else x.plan_sales_per_day
             )
             days_until = days_until_next_inbound
-            if not math.isfinite(days_until):
-                days_until = H
             demand_H = (
                 effective_plan_before * days_until
                 + x.plan_sales_per_day * max(0, H - days_until)
