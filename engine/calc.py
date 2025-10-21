@@ -1,9 +1,9 @@
 from datetime import date, timedelta
 import math
-from typing import Iterable, List
+from typing import Iterable, List, Optional, Tuple
 
 from .models import SkuInput, InTransitItem, Recommendation
-from .config import SOFT_BUFFER, ALGO_VERSION  # <-- берём конфиг отсюда
+from .config import ALGO_VERSION
 
 def _today() -> date:
     return date.today()
@@ -14,9 +14,27 @@ def _calc_H(x: SkuInput) -> int:
 def _eta_to_mp(it: InTransitItem, lt_msk_mp: int) -> date:
     return it.eta_cn_msk + timedelta(days=lt_msk_mp)
 
-def _inbound_within_H(sku: str, items: Iterable[InTransitItem], lt_msk_mp: int, H: int, today: date) -> int:
-    cutoff = today + timedelta(days=H - lt_msk_mp)
-    return sum(it.qty for it in items if it.sku == sku and it.eta_cn_msk <= cutoff)
+def _inbound_within_H(
+    sku: str,
+    items: Iterable[InTransitItem],
+    lt_msk_mp: int,
+    H: int,
+    today: date,
+) -> Tuple[int, Optional[date]]:
+    horizon_mp = today + timedelta(days=H)
+    inbound = 0
+    next_eta_mp: Optional[date] = None
+    for it in items:
+        if it.sku != sku:
+            continue
+        eta_mp = _eta_to_mp(it, lt_msk_mp)
+        if eta_mp < today:
+            continue
+        if eta_mp <= horizon_mp:
+            inbound += it.qty
+        if next_eta_mp is None or eta_mp < next_eta_mp:
+            next_eta_mp = eta_mp
+    return inbound, next_eta_mp
 
 def _order_qty(shortage: float, moq_step: int) -> int:
     if shortage <= 0:
@@ -29,28 +47,40 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
     for x in inputs:
         H = _calc_H(x)
         demand = x.plan_sales_per_day * H
-        inbound = _inbound_within_H(x.sku, in_transit, x.lead_time_msk_mp, H, t)
+        inbound, next_eta_mp = _inbound_within_H(
+            x.sku, in_transit, x.lead_time_msk_mp, H, t
+        )
         coverage = x.stock_ff + x.stock_mp + inbound
-        target = demand + x.safety_stock_mp
+        target = demand + x.safety_stock_mp + x.safety_stock_ff
         shortage = max(0.0, target - coverage)
         order = _order_qty(shortage, x.moq_step)
 
-        # --- расчёт reduce_plan_to с мягким зазором SOFT_BUFFER ---
-        # хотим найти такой план p', чтобы:  p' * H + safety_stock + SOFT_BUFFER <= coverage
-        # => p' <= (coverage - safety_stock - SOFT_BUFFER) / H
-        reduce_plan_to = None
-        if shortage > 0 and H > 0:
-            max_plan = (coverage - x.safety_stock_mp - SOFT_BUFFER) / H
-            max_plan = math.floor(max_plan)  # план в целых ед/день вниз
-            if max_plan < 0:
-                max_plan = 0
-            # если текущий план выше допустимого — рекомендуем снизить
-            if max_plan < x.plan_sales_per_day:
-                reduce_plan_to = int(max_plan)
+        if next_eta_mp is None:
+            days_until_next_inbound: float = float("inf")
+        else:
+            days_until_next_inbound = max((next_eta_mp - t).days, 0)
+
+        coverage_days = (
+            float("inf")
+            if x.plan_sales_per_day <= 0
+            else coverage / x.plan_sales_per_day
+        )
+
+        if coverage_days < days_until_next_inbound:
+            stock_status = "⚠️ Не хватает до поставки"
+            denom = max(days_until_next_inbound, 1)
+            reduce_plan_to = max(
+                0.0,
+                (coverage - x.safety_stock_ff - x.safety_stock_mp) / denom,
+            )
+        else:
+            stock_status = "✅ Запаса хватает до поставки"
+            reduce_plan_to = None
 
         comment = (
             f"H={H}; спрос={demand:.0f}; в_пути={inbound}; "
-            f"покрытие={coverage}; цель={target:.0f}; нехватка={shortage:.0f}"
+            f"покрытие={coverage}; цель={target:.0f}; нехватка={shortage:.0f}; "
+            f"статус={stock_status}"
         )
 
         recs.append(Recommendation(
@@ -63,6 +93,7 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             shortage=shortage,
             moq_step=x.moq_step,
             order_qty=order,
+            stock_status=stock_status,
             reduce_plan_to=reduce_plan_to,
             comment=comment,
             algo_version=ALGO_VERSION

@@ -3,6 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+
 class SkuInput(BaseModel):
     sku: str
     stock_ff: int = Field(ge=0)
@@ -15,10 +16,12 @@ class SkuInput(BaseModel):
     safety_stock_ff: int = Field(ge=0)
     moq_step: int = Field(ge=1)
 
+
 class InTransitItem(BaseModel):
     sku: str
     qty: int = Field(ge=0)
     eta_cn_msk: date
+
 
 class Recommendation(BaseModel):
     sku: str
@@ -30,6 +33,7 @@ class Recommendation(BaseModel):
     shortage: float
     moq_step: int
     order_qty: int
-    reduce_plan_to: Optional[int] = None
+    stock_status: Optional[str] = None
+    reduce_plan_to: Optional[float] = None
     comment: str
     algo_version: str = "v1.2a"
