@@ -46,14 +46,10 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
     recs: List[Recommendation] = []
     for x in inputs:
         H = _calc_H(x)
-        demand = x.plan_sales_per_day * H
         inbound, next_eta_mp = _inbound_within_H(
             x.sku, in_transit, x.lead_time_msk_mp, H, t
         )
         coverage = x.stock_ff + x.stock_mp + inbound
-        target = demand + x.safety_stock_mp + x.safety_stock_ff
-        shortage = max(0.0, target - coverage)
-        order = _order_qty(shortage, x.moq_step)
 
         if next_eta_mp is None:
             days_until_next_inbound: float = float("inf")
@@ -88,23 +84,42 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             stock_status = "✅ Запаса хватает до поставки"
             reduce_plan_to = None
 
+        if stock_status.startswith("⚠️"):
+            effective_plan_before = (
+                reduce_plan_to if reduce_plan_to is not None else x.plan_sales_per_day
+            )
+            days_until = days_until_next_inbound
+            if not math.isfinite(days_until):
+                days_until = H
+            demand_H = (
+                effective_plan_before * days_until
+                + x.plan_sales_per_day * max(0, H - days_until)
+            )
+        else:
+            demand_H = x.plan_sales_per_day * H
+
+        target = demand_H + x.safety_stock_mp + x.safety_stock_ff
+        shortage = max(0.0, target - coverage)
+        order_qty = _order_qty(shortage, x.moq_step)
+
         comment = (
-            f"H={H}д; plan={x.plan_sales_per_day}/д; inbound={inbound}; "
-            f"on_hand={on_hand}; oos_pct={x.oos_safety_mp_pct}%; usable={usable}; "
-            f"next_eta_mp={next_eta_mp}; target={target}; shortage={shortage}; "
-            f"moq={x.moq_step}; order={order}; status='{stock_status}'"
+            f"H={H}д; plan_sales_per_day={x.plan_sales_per_day}; inbound={inbound}; "
+            f"on_hand={on_hand}; usable={usable}; oos_pct={x.oos_safety_mp_pct}%; "
+            f"next_eta_mp={next_eta_mp}; demand_H={demand_H}; H_days={H}; "
+            f"days_until_next_inbound={days_until_next_inbound}; reduce_plan_to={reduce_plan_to}; "
+            f"target={target}; shortage={shortage}; order_qty={order_qty}; status='{stock_status}'"
         )
 
         recs.append(Recommendation(
             sku=x.sku,
             H_days=H,
-            demand_H=demand,
+            demand_H=demand_H,
             inbound=inbound,
             coverage=coverage,
             target=target,
             shortage=shortage,
             moq_step=x.moq_step,
-            order_qty=order,
+            order_qty=order_qty,
             stock_status=stock_status,
             reduce_plan_to=reduce_plan_to,
             comment=comment,
