@@ -32,7 +32,8 @@ RECOMMENDATION_COLUMN_ALIASES = {
     "moq_step": "Кратность заказа (MOQ)",
     "stock_status": "Статус запаса",
     "reduce_plan_to": "Рекоменд. план, шт/день",
-    "eoh": "Ост. на конц. гориз., шт",
+    "eoh": "Ост. к прих. заказа, шт",
+    "eop_first": "Ост. к 1-й пост., шт",
     "comment": "Комментарий",
     "algo_version": "Версия алгоритма",
 }
@@ -380,7 +381,7 @@ _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 
 # Порядок колонок (берём те, что реально есть в данных)
 _ORDER = [
-    "sku", "order_qty", "stock_status", "reduce_plan_to", "eoh", "comment",
+    "sku", "order_qty", "stock_status", "reduce_plan_to", "eoh", "eop_first", "comment",
     "shortage", "target", "coverage", "inbound",
     "demand_H", "H_days", "moq_step", "algo_version"
 ]
@@ -447,16 +448,8 @@ def _apply_formats(
 
     # Форматы чисел и выравнивание данных
     int_like = {
-        "H_days",
-        "inbound",
-        "coverage",
-        "target",
-        "shortage",
-        "moq_step",
-        "order_qty",
-        "demand_H",
-        "reduce_plan_to",
-        "eoh",
+        "H_days","inbound","coverage","target","shortage","moq_step",
+        "order_qty","demand_H","reduce_plan_to","eoh","eop_first"
     }
     for row in ws.iter_rows(min_row=2):
         for cell in row:
