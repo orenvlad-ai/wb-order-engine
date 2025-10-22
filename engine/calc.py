@@ -60,28 +60,68 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
 
         on_hand = x.stock_ff + x.stock_mp
         oos_threshold = (x.oos_safety_mp_pct / 100.0) * x.safety_stock_mp
-        usable = max(0.0, on_hand - oos_threshold)
-        coverage_days_on_hand = (
-            float("inf")
-            if x.plan_sales_per_day <= 0
-            else usable / x.plan_sales_per_day
-        )
 
-        if coverage_days_on_hand < days_until_next_inbound:
+        # Собираем все поставки в горизонте H на уровне МП (день от t и qty)
+        events: List[Tuple[int, int]] = []
+        for it in in_transit:
+            if it.sku != x.sku:
+                continue
+            eta_mp_i = _eta_to_mp(it, x.lead_time_msk_mp)
+            d = (eta_mp_i - t).days
+            if 0 <= d <= H:
+                events.append((d, it.qty))
+        events.sort(key=lambda z: z[0])
+
+        plan = x.plan_sales_per_day
+
+        # Проверка на провал к порогу при текущем плане (без снижения)
+        def min_stock_with_piecewise(p_before_first: float, p_after_first: float) -> float:
+            s = on_hand
+            min_s = s
+            prev = 0
+            if events:
+                d1, q1 = events[0]
+                L = max(d1 - prev, 0)
+                s -= p_before_first * L
+                if s < min_s:
+                    min_s = s
+                s += q1
+                prev = d1
+                for d, q in events[1:]:
+                    L = max(d - prev, 0)
+                    s -= p_after_first * L
+                    if s < min_s:
+                        min_s = s
+                    s += q
+                    prev = d
+                L = max(H - prev, 0)
+                s -= p_after_first * L
+                if s < min_s:
+                    min_s = s
+                return min_s
+            else:
+                s -= p_before_first * H
+                return min(s, min_s)
+
+        min_s_no_reduce = min_stock_with_piecewise(plan, plan)
+
+        # Флаг срабатывает, если минимальный прогнозный запас на горизонте ниже порога OOS
+        flag_any = min_s_no_reduce < oos_threshold
+
+        # Подбор минимально достаточного снижения плана до первой поставки
+        reduce_plan_to: Optional[float] = None
+        if flag_any:
+            lo, hi = 0.0, float(max(0.0, plan))
+            for _ in range(32):
+                mid = (lo + hi) / 2.0
+                ms = min_stock_with_piecewise(mid, plan)
+                if ms >= oos_threshold - 1e-9:
+                    lo = mid
+                else:
+                    hi = mid
+            r = math.floor(lo + 1e-9)
+            reduce_plan_to = float(min(plan, max(0.0, r)))
             stock_status = "⚠️ Не хватает до поставки"
-            denom = max(days_until_next_inbound, 1)
-            max_daily = usable / denom
-            reduce_plan_to = float(
-                max(
-                    0.0,
-                    math.floor(
-                        min(
-                            x.plan_sales_per_day,
-                            max_daily,
-                        )
-                    ),
-                )
-            )
         else:
             stock_status = "✅ Запаса хватает до поставки"
             reduce_plan_to = None
@@ -135,7 +175,7 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             reduce_plan_to if stock_status.startswith("⚠️") else "–"
         )
 
-        # Комментарий оставляем только как лаконичную метку (для читабельности в Excel)
+        # Комментарий: короткая метка dual-plan / "–"
         comment = "⚙️ dual-plan" if stock_status.startswith("⚠️") else "–"
 
         recs.append(Recommendation(
