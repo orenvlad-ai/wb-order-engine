@@ -98,12 +98,16 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         else:
             demand_H = x.plan_sales_per_day * H
 
+        # Покрытие на горизонте (учитывает только интранзиты, успевающие до H)
         target = demand_H + x.safety_stock_mp + x.safety_stock_ff
         shortage = max(0.0, target - coverage)
         order_qty = _order_qty(shortage, x.moq_step)
 
-        # Остаток на конец горизонта (EOH)
-        eoh = coverage - demand_H
+        # EOH как остаток НА МОМЕНТ ПРИБЫТИЯ РАСЧЁТНОГО ЗАКАЗА (через H дней):
+        # (Новая поставка order_qty в это значение НЕ включается.)
+        #   eoh = on_hand + inbound_≤H − demand_до(H)
+        # где demand_до(H) уже учтён по двойному плану при ⚠️.
+        eoh = coverage - demand_H  # coverage = on_hand + inbound_≤H
 
         reduce_plan_to_display = reduce_plan_to if stock_status.startswith("⚠️") else "–"
 
