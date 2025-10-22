@@ -5,7 +5,6 @@ from typing import Tuple, List, Dict, Any, Optional
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.comments import Comment
 
 from pydantic import ValidationError
 
@@ -17,7 +16,7 @@ OPTIONAL_INPUT_COLS = ["safety_stock_ff", "safety_stock_mp"]
 REQUIRED_INTRANSIT_COLS = ["sku", "qty", "eta_cn_msk"]
 SETTINGS_SHEET_NAME = "Настройки заказа"
 
-INPUT_SHEET_NAMES = ("Input", "Ввод")
+INPUT_SHEET_NAMES = ("Input", "Ввод данных", "Ввод")
 INTRANSIT_SHEET_NAMES = ("InTransit", "Товары в пути")
 
 # Отображения колонок листа Recommendations
@@ -65,6 +64,8 @@ SETTINGS_COLUMN_ALIASES = {
     "Порог несниж. МП при OOS, %": "oos_safety_mp_pct",
     "Дефолт. несниж. ФФ": "safety_stock_ff_default",
     "Дефолт. несниж. МП": "safety_stock_mp_default",
+    "Коэф. несн. FF": "safety_stock_ff_coeff",
+    "Коэф. несн. MP": "safety_stock_mp_coeff",
 }
 
 # Отображение внутренних имён обратно в русские заголовки для сообщений об ошибках
@@ -91,6 +92,8 @@ SETTINGS_COLUMN_DISPLAY = {
     "oos_safety_mp_pct": "Порог несниж. МП при OOS, %",
     "safety_stock_ff_default": "Дефолт. несниж. ФФ",
     "safety_stock_mp_default": "Дефолт. несниж. МП",
+    "safety_stock_ff_coeff": "Коэф. несн. FF",
+    "safety_stock_mp_coeff": "Коэф. несн. MP",
 }
 REQUIRED_SETTINGS_COLS = [
     "prod_lead_time_days",
@@ -102,6 +105,10 @@ REQUIRED_SETTINGS_COLS = [
 OPTIONAL_SETTINGS_COLS = [
     "safety_stock_ff_default",
     "safety_stock_mp_default",
+]
+OPTIONAL_SETTINGS_FLOAT_COLS = [
+    "safety_stock_ff_coeff",
+    "safety_stock_mp_coeff",
 ]
 
 class BadTemplateError(Exception): ...
@@ -199,13 +206,24 @@ def _read_settings(df_settings: pd.DataFrame) -> Dict[str, Any]:
             )
         else:
             settings[key] = 0
+    for key in OPTIONAL_SETTINGS_FLOAT_COLS:
+        if key in df_settings.columns:
+            value = row.get(key)
+            settings[key] = _parse_float(
+                value,
+                sheet=SETTINGS_SHEET_NAME,
+                column=SETTINGS_COLUMN_DISPLAY.get(key, key),
+                sku="*",
+            )
+        else:
+            settings[key] = 1.0
     return settings
 
 def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
     xl = pd.ExcelFile(io.BytesIO(xlsx_bytes))
     input_sheet_name = next((name for name in INPUT_SHEET_NAMES if name in xl.sheet_names), None)
     if input_sheet_name is None:
-        raise BadTemplateError("В файле нет листа 'Input' или 'Ввод'.")
+        raise BadTemplateError("В файле нет листа 'Input', 'Ввод данных' или 'Ввод'.")
 
     df_in = pd.read_excel(xl, input_sheet_name)
     df_in.rename(columns=INPUT_COLUMN_ALIASES, inplace=True)
@@ -411,14 +429,11 @@ def _apply_formats(
         internal_name = RECOMMENDATION_DISPLAY_TO_INTERNAL.get(cell.value, cell.value)
         header_internal[idx] = internal_name
         cell.font = _BOLD
-        cell.alignment = _CENTER  # центр по горизонтали и вертикали
+        cell.alignment = _CENTER
         cell.fill = _HEADER_FILL
         cell.border = _BORDER
-        # краткие подсказки
-        if internal_name == "order_qty":
-            cell.comment = Comment("Рекомендованный заказ с кратностью MOQ", "WB Engine")
-        if internal_name == "shortage":
-            cell.comment = Comment("Нехватка к цели (demand_H + safety_stock)", "WB Engine")
+        if cell.comment:
+            cell.comment = None
 
     for col_idx, name in (
         (idx_order, "order_qty"),
@@ -497,10 +512,12 @@ def generate_input_template() -> io.BytesIO:
         "МСК→МП, дней",
         "Кратность (MOQ)",
         "Порог несниж. МП при OOS, %",
+        "Коэф. несн. FF",
+        "Коэф. несн. MP",
     ]
 
     ws_input = wb.active
-    ws_input.title = "Ввод"
+    ws_input.title = "Ввод данных"
     ws_input.append(input_headers)
     for cell in ws_input[1]:
         cell.font = _BOLD
@@ -510,8 +527,8 @@ def generate_input_template() -> io.BytesIO:
         900,
         650,
         14.5,
-        "",
-        "",
+        "=D2*'Настройки заказа'!$F$2",
+        "=D2*'Настройки заказа'!$G$2",
     ])
     _auto_width_template(ws_input)
 
@@ -526,6 +543,8 @@ def generate_input_template() -> io.BytesIO:
         5,
         10,
         5,
+        1,
+        1,
     ])
     _auto_width_template(ws_settings)
 
@@ -555,14 +574,23 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
     in_buf = io.BytesIO(xlsx_in)
     out_buf = io.BytesIO()
     with pd.ExcelWriter(out_buf, engine="openpyxl") as w:
-        # 1) Пишем Recommendations ПЕРВЫМ листом
-        df_out = df_rec.rename(columns=RECOMMENDATION_COLUMN_ALIASES)
-        df_out.to_excel(w, sheet_name="Recommendations", index=False)
-        ws = w.book["Recommendations"]
-        _apply_formats_localized(ws)
-        ws.freeze_panes = "A2"
+        # 1) Формируем лист "Заказ на фабрику" (первый)
+        df_factory = (
+            df_rec[df_rec.get("order_qty", 0) > 0][["sku", "order_qty"]]
+            if not df_rec.empty
+            else pd.DataFrame(columns=["sku", "order_qty"])
+        )
+        df_factory = df_factory.rename(columns={"sku": "Артикул", "order_qty": "Заказ, шт"})
+        df_factory.to_excel(w, sheet_name="Заказ на фабрику", index=False)
 
-        # 2) Пишем скрытый лист Log с техполями
+        # 2) Пишем лист "Рекомендации"
+        df_out = df_rec.rename(columns=RECOMMENDATION_COLUMN_ALIASES)
+        df_out.to_excel(w, sheet_name="Рекомендации", index=False)
+        ws_recs = w.book["Рекомендации"]
+        _apply_formats_localized(ws_recs)
+        ws_recs.freeze_panes = "A2"
+
+        # 3) Пишем скрытый лист Log с техполями
         log_cols = [
             "sku",
             "H_days",
@@ -583,13 +611,19 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
             ws_log = w.book["Log"]
             ws_log.sheet_state = "hidden"
 
-        # 3) Затем переносим прочие исходные листы
+        # 4) Затем переносим прочие исходные листы
         try:
             xl = pd.ExcelFile(in_buf)
             for name in xl.sheet_names:
-                if name in ("Recommendations", "Log"):
+                if name in {
+                    "Recommendations",
+                    "Рекомендации",
+                    "Log",
+                    "Заказ на фабрику",
+                }:
                     continue
-                pd.read_excel(xl, name).to_excel(w, sheet_name=name, index=False)
+                new_name = "Ввод данных" if name == "Ввод" else name
+                pd.read_excel(xl, name).to_excel(w, sheet_name=new_name, index=False)
         except Exception:
             pass
 
