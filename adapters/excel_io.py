@@ -355,16 +355,15 @@ def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
 _HEADER_FILL = PatternFill(start_color="FFEFEFEF", end_color="FFEFEFEF", fill_type="solid")
 _RISK_FILL   = PatternFill(start_color="FFFFE5E5", end_color="FFFFE5E5", fill_type="solid")
 _BOLD = Font(bold=True)
-_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
-_LEFT = Alignment(horizontal="left", vertical="center", wrap_text=True)
+_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=False)
 _THIN = Side(border_style="thin", color="FFBFBFBF")
 _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 
 # Порядок колонок (берём те, что реально есть в данных)
 _ORDER = [
-    "sku", "order_qty", "shortage", "target", "coverage", "inbound",
-    "demand_H", "H_days", "moq_step", "stock_status", "reduce_plan_to",
-    "comment", "algo_version"
+    "sku", "order_qty", "stock_status", "reduce_plan_to", "comment",
+    "shortage", "target", "coverage", "inbound",
+    "demand_H", "H_days", "moq_step", "algo_version"
 ]
 
 def _order_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -385,15 +384,23 @@ def _find_col_idx_by_internal(ws, internal_key: str) -> int | None:
 
 def _apply_formats_localized(ws):
     idx_order = _find_col_idx_by_internal(ws, "order_qty")
+    idx_status = _find_col_idx_by_internal(ws, "stock_status")
     idx_short = _find_col_idx_by_internal(ws, "shortage")
     idx_cov = _find_col_idx_by_internal(ws, "coverage")
-    _apply_formats(ws, idx_order=idx_order, idx_short=idx_short, idx_cov=idx_cov)
+    _apply_formats(
+        ws,
+        idx_order=idx_order,
+        idx_status=idx_status,
+        idx_short=idx_short,
+        idx_cov=idx_cov,
+    )
 
 
 def _apply_formats(
     ws,
     *,
     idx_order: int | None = None,
+    idx_status: int | None = None,
     idx_short: int | None = None,
     idx_cov: int | None = None,
 ):
@@ -404,7 +411,7 @@ def _apply_formats(
         internal_name = RECOMMENDATION_DISPLAY_TO_INTERNAL.get(cell.value, cell.value)
         header_internal[idx] = internal_name
         cell.font = _BOLD
-        cell.alignment = _CENTER
+        cell.alignment = _CENTER  # центр по горизонтали и вертикали
         cell.fill = _HEADER_FILL
         cell.border = _BORDER
         # краткие подсказки
@@ -413,38 +420,44 @@ def _apply_formats(
         if internal_name == "shortage":
             cell.comment = Comment("Нехватка к цели (demand_H + safety_stock)", "WB Engine")
 
-    for col_idx, name in ((idx_order, "order_qty"), (idx_short, "shortage"), (idx_cov, "coverage")):
+    for col_idx, name in (
+        (idx_order, "order_qty"),
+        (idx_status, "stock_status"),
+        (idx_short, "shortage"),
+        (idx_cov, "coverage"),
+    ):
         if col_idx and header_internal.get(col_idx) != name:
             header_internal[col_idx] = name
 
-    # Форматы чисел (без десятых)
-    int_like = {"H_days","inbound","coverage","target","shortage","moq_step","order_qty","demand_H"}
+    # Форматы чисел и выравнивание данных
+    int_like = {
+        "H_days",
+        "inbound",
+        "coverage",
+        "target",
+        "shortage",
+        "moq_step",
+        "order_qty",
+        "demand_H",
+        "reduce_plan_to",
+    }
     for row in ws.iter_rows(min_row=2):
         for cell in row:
             header_value = header_internal.get(cell.column)
-            if cell.column_letter and header_value in int_like:
-                cell.number_format = "0"
             cell.border = _BORDER
-            if isinstance(cell.value, str):
-                cell.alignment = _LEFT
+            if header_value in int_like:
+                cell.number_format = "0"
+                cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+            else:
+                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
 
-    # Подсветка риска: если shortage > 0 → розовым фоном
-    # (risk_flag у нас = shortage>0, т.к. отдельного поля нет)
-    if idx_short is None:
-        for col_idx, name in header_internal.items():
-            if name == "shortage":
-                idx_short = col_idx
-                break
-    shortage_col = idx_short
-    if shortage_col:
+    # Подсветка: красный фон только при статусе ⚠️
+    if idx_status:
         for r in range(2, ws.max_row + 1):
-            val = ws.cell(r, shortage_col).value
-            try:
-                if val and float(val) > 0:
-                    for c in range(1, ws.max_column + 1):
-                        ws.cell(r, c).fill = _RISK_FILL
-            except Exception:
-                pass
+            status_val = str(ws.cell(r, idx_status).value or "")
+            if "⚠️" in status_val:
+                for c in range(1, ws.max_column + 1):
+                    ws.cell(r, c).fill = _RISK_FILL
 
     # Автоширина
     widths = {}
@@ -542,20 +555,43 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
     in_buf = io.BytesIO(xlsx_in)
     out_buf = io.BytesIO()
     with pd.ExcelWriter(out_buf, engine="openpyxl") as w:
-        # Переносим исходные листы как есть (если читаются)
-        try:
-            xl = pd.ExcelFile(in_buf)
-            for name in xl.sheet_names:
-                pd.read_excel(xl, name).to_excel(w, sheet_name=name, index=False)
-        except Exception:
-            pass
-
-        # Пишем Recommendations
+        # 1) Пишем Recommendations ПЕРВЫМ листом
         df_out = df_rec.rename(columns=RECOMMENDATION_COLUMN_ALIASES)
         df_out.to_excel(w, sheet_name="Recommendations", index=False)
         ws = w.book["Recommendations"]
         _apply_formats_localized(ws)
         ws.freeze_panes = "A2"
+
+        # 2) Пишем скрытый лист Log с техполями
+        log_cols = [
+            "sku",
+            "H_days",
+            "demand_H",
+            "inbound",
+            "coverage",
+            "target",
+            "shortage",
+            "moq_step",
+            "order_qty",
+            "stock_status",
+            "reduce_plan_to",
+            "algo_version",
+        ]
+        log_df = df_rec.reindex(columns=log_cols)
+        if log_df.shape[1]:
+            log_df.to_excel(w, sheet_name="Log", index=False)
+            ws_log = w.book["Log"]
+            ws_log.sheet_state = "hidden"
+
+        # 3) Затем переносим прочие исходные листы
+        try:
+            xl = pd.ExcelFile(in_buf)
+            for name in xl.sheet_names:
+                if name in ("Recommendations", "Log"):
+                    continue
+                pd.read_excel(xl, name).to_excel(w, sheet_name=name, index=False)
+        except Exception:
+            pass
 
     return out_buf.getvalue()
 
