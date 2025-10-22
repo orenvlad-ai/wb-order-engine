@@ -53,7 +53,7 @@ INPUT_COLUMN_ALIASES = {
 INTRANSIT_COLUMN_ALIASES = {
     "Артикул": "sku",
     "Кол-во": "qty",
-    "ETA на ФФ": "eta_cn_msk",
+    "План. приб. на ФФ": "eta_cn_msk",
 }
 
 SETTINGS_COLUMN_ALIASES = {
@@ -64,8 +64,8 @@ SETTINGS_COLUMN_ALIASES = {
     "Порог несниж. МП при OOS, %": "oos_safety_mp_pct",
     "Дефолт. несниж. ФФ": "safety_stock_ff_default",
     "Дефолт. несниж. МП": "safety_stock_mp_default",
-    "Коэф. несн. FF": "safety_stock_ff_coeff",
-    "Коэф. несн. MP": "safety_stock_mp_coeff",
+    "Коэф. несн. ФФ": "safety_stock_ff_coeff",
+    "Коэф. несн. МП": "safety_stock_mp_coeff",
 }
 
 # Отображение внутренних имён обратно в русские заголовки для сообщений об ошибках
@@ -81,7 +81,7 @@ INPUT_COLUMN_DISPLAY = {
 INTRANSIT_COLUMN_DISPLAY = {
     "sku": "Артикул",
     "qty": "Кол-во",
-    "eta_cn_msk": "ETA на ФФ",
+    "eta_cn_msk": "План. приб. на ФФ",
 }
 
 SETTINGS_COLUMN_DISPLAY = {
@@ -92,8 +92,8 @@ SETTINGS_COLUMN_DISPLAY = {
     "oos_safety_mp_pct": "Порог несниж. МП при OOS, %",
     "safety_stock_ff_default": "Дефолт. несниж. ФФ",
     "safety_stock_mp_default": "Дефолт. несниж. МП",
-    "safety_stock_ff_coeff": "Коэф. несн. FF",
-    "safety_stock_mp_coeff": "Коэф. несн. MP",
+    "safety_stock_ff_coeff": "Коэф. несн. ФФ",
+    "safety_stock_mp_coeff": "Коэф. несн. МП",
 }
 REQUIRED_SETTINGS_COLS = [
     "prod_lead_time_days",
@@ -512,8 +512,8 @@ def generate_input_template() -> io.BytesIO:
         "МСК→МП, дней",
         "Кратность (MOQ)",
         "Порог несниж. МП при OOS, %",
-        "Коэф. несн. FF",
-        "Коэф. несн. MP",
+        "Коэф. несн. ФФ",
+        "Коэф. несн. МП",
     ]
 
     ws_input = wb.active
@@ -527,8 +527,8 @@ def generate_input_template() -> io.BytesIO:
         900,
         650,
         14.5,
-        "=D2*'Настройки заказа'!$F$2",
-        "=D2*'Настройки заказа'!$G$2",
+        "=CEILING(D2*'Настройки заказа'!$F$2, 'Настройки заказа'!$D$2)",
+        "=CEILING(D2*'Настройки заказа'!$G$2, 'Настройки заказа'!$D$2)",
     ])
     _auto_width_template(ws_input)
 
@@ -538,18 +538,18 @@ def generate_input_template() -> io.BytesIO:
         cell.font = _BOLD
 
     ws_settings.append([
-        45,
-        18,
+        15,
+        25,
+        10,
+        250,
         5,
         10,
-        5,
-        1,
-        1,
+        20,
     ])
     _auto_width_template(ws_settings)
 
     ws_transit = wb.create_sheet("Товары в пути")
-    ws_transit.append(["Артикул", "Кол-во", "ETA на ФФ"])
+    ws_transit.append(["Артикул", "Кол-во", "План. приб. на ФФ"])
     for cell in ws_transit[1]:
         cell.font = _BOLD
 
@@ -574,13 +574,17 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
     in_buf = io.BytesIO(xlsx_in)
     out_buf = io.BytesIO()
     with pd.ExcelWriter(out_buf, engine="openpyxl") as w:
-        # 1) Формируем лист "Заказ на фабрику" (первый)
-        df_factory = (
-            df_rec[df_rec.get("order_qty", 0) > 0][["sku", "order_qty"]]
-            if not df_rec.empty
-            else pd.DataFrame(columns=["sku", "order_qty"])
+        # 1) Формируем лист "Заказ на фабрику" (первый) — устойчивый к пустым/нестандартным данным
+        if not df_rec.empty and "order_qty" in df_rec.columns:
+            mask = pd.to_numeric(df_rec["order_qty"], errors="coerce").fillna(0).gt(0)
+            columns = [col for col in ("sku", "order_qty") if col in df_rec.columns]
+            df_factory = df_rec.loc[mask, columns]
+        else:
+            df_factory = pd.DataFrame(columns=["sku", "order_qty"])
+        df_factory = df_factory.rename(
+            columns={"sku": "Артикул, 货号", "order_qty": "Заказ, штук, 数量（件）"}
         )
-        df_factory = df_factory.rename(columns={"sku": "Артикул", "order_qty": "Заказ, шт"})
+        df_factory = df_factory.reindex(columns=["Артикул, 货号", "Заказ, штук, 数量（件）"])
         df_factory.to_excel(w, sheet_name="Заказ на фабрику", index=False)
 
         # 2) Пишем лист "Рекомендации"
@@ -611,19 +615,15 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
             ws_log = w.book["Log"]
             ws_log.sheet_state = "hidden"
 
-        # 4) Затем переносим прочие исходные листы
+        # 4) Затем переносим прочие исходные листы, раскрывая книгу один раз
         try:
-            xl = pd.ExcelFile(in_buf)
-            for name in xl.sheet_names:
-                if name in {
-                    "Recommendations",
-                    "Рекомендации",
-                    "Log",
-                    "Заказ на фабрику",
-                }:
-                    continue
-                new_name = "Ввод данных" if name == "Ввод" else name
-                pd.read_excel(xl, name).to_excel(w, sheet_name=new_name, index=False)
+            with pd.ExcelFile(in_buf) as xl:
+                skip = {"Recommendations", "Рекомендации", "Log", "Заказ на фабрику"}
+                for name in xl.sheet_names:
+                    if name in skip:
+                        continue
+                    new_name = "Ввод данных" if name == "Ввод" else name
+                    pd.read_excel(xl, name).to_excel(w, sheet_name=new_name, index=False)
         except Exception:
             pass
 
