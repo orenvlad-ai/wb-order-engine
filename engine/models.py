@@ -39,3 +39,4 @@ class Recommendation(BaseModel):
     comment: str
     algo_version: str = "v1.2a"
     eoh: Optional[float] = None  # Остаток на конец горизонта
+    eop_first: Optional[float] = None  # Остаток к первой интранзит-поставке в пределах горизонта

@@ -109,7 +109,31 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         # где demand_до(H) уже учтён по двойному плану при ⚠️.
         eoh = coverage - demand_H  # coverage = on_hand + inbound_≤H
 
-        reduce_plan_to_display = reduce_plan_to if stock_status.startswith("⚠️") else "–"
+        # Остаток на момент прибытия первой интранзит-поставки (если она влезает в горизонт)
+        if next_eta_mp is not None and (next_eta_mp - t).days <= H:
+            days_first = max((next_eta_mp - t).days, 0)
+            inbound_first = 0.0
+            for it in in_transit:
+                if it.sku != x.sku:
+                    continue
+                eta_mp_i = _eta_to_mp(it, x.lead_time_msk_mp)
+                if eta_mp_i < t or eta_mp_i > next_eta_mp:
+                    continue
+                inbound_first += it.qty
+            if stock_status.startswith("⚠️"):
+                daily_first = (
+                    reduce_plan_to if reduce_plan_to is not None else x.plan_sales_per_day
+                )
+            else:
+                daily_first = x.plan_sales_per_day
+            demand_first = daily_first * days_first
+            eop_first = (x.stock_ff + x.stock_mp) + float(inbound_first) - float(demand_first)
+        else:
+            eop_first = None
+
+        reduce_plan_to_display = (
+            reduce_plan_to if stock_status.startswith("⚠️") else "–"
+        )
 
         # Комментарий оставляем только как лаконичную метку (для читабельности в Excel)
         comment = "⚙️ dual-plan" if stock_status.startswith("⚠️") else "–"
@@ -129,5 +153,6 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             comment=comment,
             algo_version=ALGO_VERSION,
             eoh=eoh,
+            eop_first=eop_first,
         ))
     return recs
