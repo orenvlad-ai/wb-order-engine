@@ -38,3 +38,4 @@ class Recommendation(BaseModel):
     reduce_plan_to: Optional[Union[float, str]] = None
     comment: str
     algo_version: str = "v1.2a"
+    eoh: Optional[float] = None  # Остаток на конец горизонта
