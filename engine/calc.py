@@ -102,6 +102,9 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         shortage = max(0.0, target - coverage)
         order_qty = _order_qty(shortage, x.moq_step)
 
+        # Остаток на конец горизонта (EOH)
+        eoh = coverage - demand_H
+
         reduce_plan_to_display = reduce_plan_to if stock_status.startswith("⚠️") else "–"
 
         # Комментарий оставляем только как лаконичную метку (для читабельности в Excel)
@@ -120,6 +123,7 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             stock_status=stock_status,
             reduce_plan_to=reduce_plan_to_display,
             comment=comment,
-            algo_version=ALGO_VERSION
+            algo_version=ALGO_VERSION,
+            eoh=eoh,
         ))
     return recs
