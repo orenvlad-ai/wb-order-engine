@@ -30,7 +30,7 @@ RECOMMENDATION_COLUMN_ALIASES = {
     "reduce_plan_to_after": "Рек.план до\nзаказа",
     "current_plan": "Текущий план\nшт/день",
     "eoh": "Ост. к прих.\nзаказа, шт",
-    "eop_first": "Ост. к 1-й\nпоставке, шт",
+    "eop_first": "Остаток после\nпервой поставки, шт",
     "coverage": "Покрытие,\nшт",
     "inbound": "В пути,\nшт",
     "onhand": "Остаток на руках,\nшт",
