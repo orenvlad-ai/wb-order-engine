@@ -24,7 +24,7 @@ INTRANSIT_SHEET_NAMES = ("InTransit", "Товары в пути")
 # Отображения колонок листа Recommendations
 RECOMMENDATION_COLUMN_ALIASES = {
     "sku": "Артикул",
-    "order_qty": "Рекомендуемый заказ, шт",
+    "order_qty": "Рек.заказ, шт",
     "stock_status": "Статус запаса",
     "reduce_plan_to": "Рек.план\nшт/день",
     "reduce_plan_to_after": "Рек.план до\nзаказа",
@@ -663,6 +663,23 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
         # 2) Пишем лист "Рекомендации": подтягиваем current_plan и onhand из входного листа
         df_out = df_rec.copy()
         if not df_out.empty:
+            def _normalize_sku(value: Any) -> Any:
+                if not isinstance(value, str):
+                    return value
+                normalized = (
+                    value.strip()
+                    .replace("\xa0", " ")
+                    .replace("–", "-")
+                    .replace("—", "-")
+                    .lower()
+                )
+                normalized = (
+                    normalized.replace(" / ", "/")
+                    .replace(" /", "/")
+                    .replace("/ ", "/")
+                )
+                return " ".join(normalized.split())
+
             plan_map = None
             onhand_map = None
             try:
@@ -672,6 +689,7 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
                         df_in = pd.read_excel(xl_in, input_sheet)
                         df_in = df_in.rename(columns=INPUT_COLUMN_ALIASES)
                         if "sku" in df_in.columns:
+                            df_in["sku"] = df_in["sku"].apply(_normalize_sku)
                             for col in ("stock_ff", "stock_mp", "plan_sales_per_day"):
                                 if col in df_in.columns:
                                     df_in[col] = pd.to_numeric(df_in[col], errors="coerce")
