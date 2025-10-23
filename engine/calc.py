@@ -228,8 +228,31 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             else:
                 r_avg = r1_min
 
-            r1_smooth = _clamp(r_avg, r1_min, float(x.plan_sales_per_day))
-            r2_smooth = _clamp(r_avg, r2_min, float(x.plan_sales_per_day))
+            p = float(x.plan_sales_per_day)
+            r1_smooth = _clamp(r_avg, r1_min, p)
+            r2_smooth = _clamp(r_avg, r2_min, p)
+
+            # --- Плавное изменение относительно текущего плана p ---
+            dead_zone = 0.10   # ±10% — зона нечувствительности
+            step_limit = 0.30  # за один шаг можно снизить не более 30%
+            diff_cap = 0.20    # r1 и r2 не должны различаться более чем на 20% от p
+
+            def _soften(target: float, current: float) -> float:
+                if current <= 0:
+                    return target
+                if abs(target - current) <= dead_zone * current:
+                    return current
+                min_allowed = current * (1.0 - step_limit)
+                return max(min_allowed, target)
+
+            r1_smooth = _soften(r1_smooth, p)
+            r2_smooth = _soften(r2_smooth, p)
+
+            max_diff = diff_cap * p
+            if p > 0 and abs(r1_smooth - r2_smooth) > max_diff:
+                mid = (r1_smooth + r2_smooth) / 2.0
+                r1_smooth = _clamp(mid, r1_min, p)
+                r2_smooth = _clamp(mid, r2_min, p)
 
             r1_smooth = float(math.floor(r1_smooth + 1e-9))
             r2_smooth = float(math.floor(r2_smooth + 1e-9))
