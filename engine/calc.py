@@ -110,6 +110,7 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
 
         # Подбор минимально достаточного снижения плана до первой поставки
         reduce_plan_to: Optional[float] = None
+        reduce_plan_to_after: Optional[float] = None
         if flag_any:
             lo, hi = 0.0, float(max(0.0, plan))
             for _ in range(32):
@@ -149,6 +150,26 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         # где demand_до(H) уже учтён по двойному плану при ⚠️.
         eoh = coverage - demand_H  # coverage = on_hand + inbound_≤H
 
+        if (
+            next_eta_mp is not None
+            and (next_eta_mp - t).days < H
+            and eoh < oos_threshold - 1e-9
+            and events
+        ):
+            plan_before_first = (
+                reduce_plan_to if reduce_plan_to is not None else x.plan_sales_per_day
+            )
+            lo, hi = 0.0, float(max(0.0, plan))
+            for _ in range(32):
+                mid = (lo + hi) / 2.0
+                ms = min_stock_with_piecewise(plan_before_first, mid)
+                if ms >= oos_threshold - 1e-9:
+                    lo = mid
+                else:
+                    hi = mid
+            r2 = math.floor(lo + 1e-9)
+            reduce_plan_to_after = float(min(plan, max(0.0, r2)))
+
         # Остаток на момент прибытия первой интранзит-поставки (если она влезает в горизонт)
         if next_eta_mp is not None and (next_eta_mp - t).days <= H:
             days_first = max((next_eta_mp - t).days, 0)
@@ -174,6 +195,9 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         reduce_plan_to_display = (
             reduce_plan_to if stock_status.startswith("⚠️") else "–"
         )
+        reduce_plan_to_after_display = (
+            reduce_plan_to_after if reduce_plan_to_after is not None else "–"
+        )
 
         # Комментарий: короткая метка dual-plan / "–"
         comment = "⚙️ dual-plan" if stock_status.startswith("⚠️") else "–"
@@ -190,6 +214,7 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             order_qty=order_qty,
             stock_status=stock_status,
             reduce_plan_to=reduce_plan_to_display,
+            reduce_plan_to_after=reduce_plan_to_after_display,
             comment=comment,
             algo_version=ALGO_VERSION,
             eoh=eoh,

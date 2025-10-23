@@ -36,6 +36,7 @@ class Recommendation(BaseModel):
     order_qty: int
     stock_status: Optional[str] = None
     reduce_plan_to: Optional[Union[float, str]] = None
+    reduce_plan_to_after: Optional[Union[float, str]] = None
     comment: str
     algo_version: str = "v1.2a"
     eoh: Optional[float] = None  # Остаток на конец горизонта
