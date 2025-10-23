@@ -4,6 +4,7 @@ from typing import Tuple, List, Dict, Any, Optional
 
 import pandas as pd
 from openpyxl import Workbook
+from openpyxl.comments import Comment
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 from pydantic import ValidationError
@@ -35,6 +36,8 @@ RECOMMENDATION_COLUMN_ALIASES = {
     "eoh": "Ост. к прих. заказа, шт",
     "eop_first": "Ост. к 1-й пост., шт",
     "comment": "Комментарий",
+    "current_plan": "Текущий план, шт/день",
+    "onhand": "Остаток на руках, шт",
     "algo_version": "Версия алгоритма",
 }
 
@@ -381,10 +384,32 @@ _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 
 # Порядок колонок (берём те, что реально есть в данных)
 _ORDER = [
-    "sku", "order_qty", "stock_status", "reduce_plan_to", "eoh", "eop_first", "comment",
-    "shortage", "target", "coverage", "inbound",
-    "demand_H", "H_days", "moq_step", "algo_version"
+    "sku", "order_qty", "stock_status", "reduce_plan_to", "comment",
+    "current_plan", "H_days", "inbound", "onhand", "demand_H", "coverage",
+    "eop_first", "eoh", "target", "shortage",
+    "moq_step", "algo_version"
 ]
+
+
+_HEADER_TIPS: Dict[str, str] = {
+    "sku": "Артикул — код товара/модель.",
+    "order_qty": "Рекомендуемый заказ, шт — что заказать сейчас (округлено до кратности).",
+    "stock_status": "Статус запаса — хватит ли до ближайшей поставки: ✅ доживаем / ⚠️ не доживаем.",
+    "reduce_plan_to": "Рекоменд. план, шт/день — снизить продажи до 1-й поставки, чтобы не провалиться к порогу OOS.",
+    "comment": "Комментарий — ⚙️ dual-plan (учтён сниженный план) или \"–\".",
+    "current_plan": "Текущий план, шт/день — фактический план из «Ввод данных».",
+    "H_days": "Горизонт прогноза, дней — H = Произв. + Китай→МСК + МСК→МП.",
+    "inbound": "В пути, шт — сумма поставок, что успеют на МП до (сегодня+H).",
+    "onhand": "Остаток на руках, шт — запасы на момент ввода = Остаток ФФ + Остаток МП.",
+    "demand_H": "Спрос за горизонт, шт — продажи за H (при ⚠️ до 1-й поставки — сниженный план, далее — базовый).",
+    "coverage": "Покрытие, шт — доступный объём за H = Остаток на руках + В пути.",
+    "eop_first": "Ост. к 1-й пост., шт — остаток к моменту ближайшей интранзит-поставки (без order_qty).",
+    "eoh": "Ост. к прих. заказа, шт — остаток к моменту прихода новой партии (через H), без order_qty.",
+    "target": "Цель, шт — запас, нужный на конец H = Спрос за горизонт + Неснижаемые (ФФ+МП).",
+    "shortage": "Нехватка, шт — max(Цель − Покрытие, 0).",
+    "moq_step": "Кратность заказа (MOQ) — шаг округления заказа.",
+    "algo_version": "Версия алгоритма — версия логики расчёта.",
+}
 
 def _order_columns(df: pd.DataFrame) -> pd.DataFrame:
     cols = [c for c in _ORDER if c in df.columns] + [c for c in df.columns if c not in _ORDER]
@@ -436,6 +461,9 @@ def _apply_formats(
         cell.border = _BORDER
         if cell.comment:
             cell.comment = None
+        tip_text = _HEADER_TIPS.get(internal_name)
+        if tip_text:
+            cell.comment = Comment(tip_text, "WB Engine")
 
     for col_idx, name in (
         (idx_order, "order_qty"),
@@ -448,8 +476,9 @@ def _apply_formats(
 
     # Форматы чисел и выравнивание данных
     int_like = {
-        "H_days","inbound","coverage","target","shortage","moq_step",
-        "order_qty","demand_H","reduce_plan_to","eoh","eop_first"
+        "H_days", "inbound", "onhand", "coverage", "target", "shortage",
+        "moq_step", "order_qty", "current_plan", "demand_H", "reduce_plan_to",
+        "eop_first", "eoh"
     }
     for row in ws.iter_rows(min_row=2):
         for cell in row:
@@ -583,7 +612,21 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
         df_factory.to_excel(w, sheet_name="Заказ на фабрику", index=False)
 
         # 2) Пишем лист "Рекомендации"
-        df_out = df_rec.rename(columns=RECOMMENDATION_COLUMN_ALIASES)
+        df_out = df_rec.copy()
+        if not df_out.empty:
+            if "current_plan" not in df_out.columns:
+                plan_series = df_out.get("plan_sales_per_day")
+                if isinstance(plan_series, pd.Series):
+                    df_out["current_plan"] = plan_series
+                else:
+                    df_out["current_plan"] = pd.Series([None] * len(df_out), index=df_out.index)
+            if "onhand" not in df_out.columns:
+                stock_ff = df_out["stock_ff"] if "stock_ff" in df_out.columns else pd.Series(0, index=df_out.index)
+                stock_mp = df_out["stock_mp"] if "stock_mp" in df_out.columns else pd.Series(0, index=df_out.index)
+                df_out["onhand"] = pd.to_numeric(stock_ff, errors="coerce").fillna(0) + pd.to_numeric(stock_mp, errors="coerce").fillna(0)
+            df_out.drop(columns=["plan_sales_per_day", "stock_ff", "stock_mp"], errors="ignore", inplace=True)
+            df_out = _order_columns(df_out)
+        df_out = df_out.rename(columns=RECOMMENDATION_COLUMN_ALIASES)
         df_out.to_excel(w, sheet_name="Рекомендации", index=False)
         ws_recs = w.book["Рекомендации"]
         _apply_formats_localized(ws_recs)
