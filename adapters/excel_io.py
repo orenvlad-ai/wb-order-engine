@@ -6,6 +6,7 @@ import pandas as pd
 from openpyxl import Workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 
 from pydantic import ValidationError
 
@@ -25,21 +26,21 @@ RECOMMENDATION_COLUMN_ALIASES = {
     "sku": "Артикул",
     "order_qty": "Рекомендуемый заказ, шт",
     "stock_status": "Статус запаса",
-    "reduce_plan_to": "Рекоменд. план, шт/день",
+    "reduce_plan_to": "Рекоменд. план\nшт/день",
     "reduce_plan_to_after": "Реком. план до прихода заказа, шт/день",
-    "current_plan": "Текущий план, шт/день",
-    "eoh": "Ост. к прих. заказа, шт",
-    "eop_first": "Ост. к 1-й пост., шт",
-    "coverage": "Покрытие, шт",
-    "inbound": "В пути, шт",
-    "onhand": "Остаток на руках, шт",
-    "demand_H": "Спрос за горизонт, шт",
+    "current_plan": "Текущий план\nшт/день",
+    "eoh": "Ост. к прих.\nзаказа, шт",
+    "eop_first": "Ост. к 1-й\nпоставке, шт",
+    "coverage": "Покрытие,\nшт",
+    "inbound": "В пути,\nшт",
+    "onhand": "Остаток на руках,\nшт",
+    "demand_H": "Спрос за\nгоризонт, шт",
     "target": "Цель, шт",
     "shortage": "Нехватка, шт",
-    "moq_step": "Кратность заказа (MOQ)",
+    "moq_step": "Кратность\n(MOQ)",
     "comment": "Комментарий",
     "algo_version": "Версия алгоритма",
-    "H_days": "Горизонт прогноза, дней",
+    "H_days": "Горизонт прогноза,\nдней",
 }
 
 RECOMMENDATION_DISPLAY_TO_INTERNAL = {
@@ -379,7 +380,7 @@ def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
 _HEADER_FILL = PatternFill(start_color="FFEFEFEF", end_color="FFEFEFEF", fill_type="solid")
 _RISK_FILL   = PatternFill(start_color="FFFFE5E5", end_color="FFFFE5E5", fill_type="solid")
 _BOLD = Font(bold=True)
-_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=False)
+_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 _THIN = Side(border_style="thin", color="FFBFBFBF")
 _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 
@@ -489,9 +490,9 @@ def _apply_formats(
             cell.border = _BORDER
             if header_value in int_like:
                 cell.number_format = "0"
-                cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+                cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
             else:
-                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
+                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
     # Подсветка: красный фон только при статусе ⚠️
     if idx_status:
@@ -501,25 +502,34 @@ def _apply_formats(
                 for c in range(1, ws.max_column + 1):
                     ws.cell(r, c).fill = _RISK_FILL
 
-    # Автоширина
+    # Автоширина с учётом переносов
     widths = {}
     for r in ws.iter_rows(values_only=True):
         for idx, v in enumerate(r, start=1):
-            w = len(str(v)) if v is not None else 0
-            widths[idx] = max(widths.get(idx, 0), w)
+            s = "" if v is None else str(v)
+            l = max((len(part) for part in s.replace("\r\n", "\n").split("\n")), default=0)
+            widths[idx] = max(widths.get(idx, 0), l)
     for idx, w in widths.items():
-        ws.column_dimensions[ws.cell(1, idx).column_letter].width = min(max(w + 2, 10), 60)
+        col = get_column_letter(idx)
+        ws.column_dimensions[col].width = min(max(w + 2, 8), 40)
 
 
-def _auto_width_template(ws):
+def _auto_width_all(ws):
+    """Устанавливает ширину колонок по максимальной длине контента."""
+
     widths = {}
     for row in ws.iter_rows(values_only=True):
         for idx, value in enumerate(row, start=1):
-            length = len(str(value)) if value is not None else 0
+            if value is None:
+                length = 0
+            else:
+                text = str(value).replace("\r\n", "\n")
+                parts = text.split("\n") if text else []
+                length = max((len(part) for part in parts), default=len(text))
             widths[idx] = max(widths.get(idx, 0), length)
     for idx, width in widths.items():
-        column = ws.cell(row=1, column=idx).column_letter
-        ws.column_dimensions[column].width = max(width + 2, 10)
+        column = get_column_letter(idx)
+        ws.column_dimensions[column].width = min(max(width + 2, 8), 40)
 
 
 def generate_input_template() -> io.BytesIO:
@@ -557,7 +567,7 @@ def generate_input_template() -> io.BytesIO:
         "=CEILING(D2*'Настройки заказа'!$F$2, 'Настройки заказа'!$D$2)",
         "=CEILING(D2*'Настройки заказа'!$G$2, 'Настройки заказа'!$D$2)",
     ])
-    _auto_width_template(ws_input)
+    _auto_width_all(ws_input)
 
     ws_settings = wb.create_sheet(SETTINGS_SHEET_NAME)
     ws_settings.append(settings_headers)
@@ -573,7 +583,7 @@ def generate_input_template() -> io.BytesIO:
         10,
         20,
     ])
-    _auto_width_template(ws_settings)
+    _auto_width_all(ws_settings)
 
     ws_transit = wb.create_sheet("Товары в пути")
     ws_transit.append(["Артикул", "Кол-во", "План. приб. на ФФ"])
@@ -585,7 +595,7 @@ def generate_input_template() -> io.BytesIO:
         120,
         "2025-11-01",
     ])
-    _auto_width_template(ws_transit)
+    _auto_width_all(ws_transit)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -609,10 +619,15 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
         else:
             df_factory = pd.DataFrame(columns=["sku", "order_qty"])
         df_factory = df_factory.rename(
-            columns={"sku": "Артикул, 货号", "order_qty": "Заказ, штук, 数量（件）"}
+            columns={"sku": "Артикул\n货号", "order_qty": "Заказ, штук\n数量（件）"}
         )
-        df_factory = df_factory.reindex(columns=["Артикул, 货号", "Заказ, штук, 数量（件）"])
+        df_factory = df_factory.reindex(columns=["Артикул\n货号", "Заказ, штук\n数量（件）"])
         df_factory.to_excel(w, sheet_name="Заказ на фабрику", index=False)
+        ws_factory = w.book["Заказ на фабрику"]
+        ws_factory.row_dimensions[1].height = 32
+        for cell in ws_factory[1]:
+            cell.alignment = _CENTER
+        _auto_width_all(ws_factory)
 
         # 2) Пишем лист "Рекомендации": подтягиваем current_plan и onhand из входного листа
         df_out = df_rec.copy()
@@ -665,6 +680,8 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
         df_out.to_excel(w, sheet_name="Рекомендации", index=False)
         ws_recs = w.book["Рекомендации"]
         _apply_formats_localized(ws_recs)
+        ws_recs.row_dimensions[1].height = 32
+        _auto_width_all(ws_recs)
         ws_recs.freeze_panes = "A2"
 
         # 3) Пишем скрытый лист Log с техполями
