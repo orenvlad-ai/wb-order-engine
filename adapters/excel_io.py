@@ -24,21 +24,22 @@ INTRANSIT_SHEET_NAMES = ("InTransit", "Товары в пути")
 RECOMMENDATION_COLUMN_ALIASES = {
     "sku": "Артикул",
     "order_qty": "Рекомендуемый заказ, шт",
-    "shortage": "Нехватка, шт",
-    "target": "Цель, шт",
-    "coverage": "Покрытие, шт",
-    "inbound": "В пути, шт",
-    "demand_H": "Спрос за горизонт, шт",
-    "H_days": "Горизонт прогноза, дней",
-    "moq_step": "Кратность заказа (MOQ)",
     "stock_status": "Статус запаса",
     "reduce_plan_to": "Рекоменд. план, шт/день",
+    "reduce_plan_to_after": "Реком. план до прихода заказа, шт/день",
+    "current_plan": "Текущий план, шт/день",
     "eoh": "Ост. к прих. заказа, шт",
     "eop_first": "Ост. к 1-й пост., шт",
-    "comment": "Комментарий",
-    "current_plan": "Текущий план, шт/день",
+    "coverage": "Покрытие, шт",
+    "inbound": "В пути, шт",
     "onhand": "Остаток на руках, шт",
+    "demand_H": "Спрос за горизонт, шт",
+    "target": "Цель, шт",
+    "shortage": "Нехватка, шт",
+    "moq_step": "Кратность заказа (MOQ)",
+    "comment": "Комментарий",
     "algo_version": "Версия алгоритма",
+    "H_days": "Горизонт прогноза, дней",
 }
 
 RECOMMENDATION_DISPLAY_TO_INTERNAL = {
@@ -384,10 +385,11 @@ _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 
 # Порядок колонок (берём те, что реально есть в данных)
 _ORDER = [
-    "sku", "order_qty", "stock_status", "reduce_plan_to", "comment",
-    "current_plan", "H_days", "inbound", "onhand", "demand_H", "coverage",
-    "eop_first", "eoh", "target", "shortage",
-    "moq_step", "algo_version"
+    "sku", "order_qty", "stock_status",
+    "reduce_plan_to", "reduce_plan_to_after", "current_plan",
+    "eoh", "eop_first", "coverage", "inbound", "onhand",
+    "demand_H", "target", "shortage",
+    "moq_step", "comment", "algo_version",
 ]
 
 
@@ -396,9 +398,8 @@ _HEADER_TIPS: Dict[str, str] = {
     "order_qty": "Рекомендуемый заказ, шт — что заказать сейчас (округлено до кратности).",
     "stock_status": "Статус запаса — хватит ли до ближайшей поставки: ✅ доживаем / ⚠️ не доживаем.",
     "reduce_plan_to": "Рекоменд. план, шт/день — снизить продажи до 1-й поставки, чтобы не провалиться к порогу OOS.",
-    "comment": "Комментарий — ⚙️ dual-plan (учтён сниженный план) или \"–\".",
+    "reduce_plan_to_after": "Реком. план до прихода заказа, шт/день — минимальный план продаж после 1-й поставки, чтобы на всём горизонте запас оставался выше порога OOS; рассчитывается только при дефиците к приходу заказа.",
     "current_plan": "Текущий план, шт/день — фактический план из «Ввод данных».",
-    "H_days": "Горизонт прогноза, дней — H = Произв. + Китай→МСК + МСК→МП.",
     "inbound": "В пути, шт — сумма поставок, что успеют на МП до (сегодня+H).",
     "onhand": "Остаток на руках, шт — запасы на момент ввода = Остаток ФФ + Остаток МП.",
     "demand_H": "Спрос за горизонт, шт — продажи за H (при ⚠️ до 1-й поставки — сниженный план, далее — базовый).",
@@ -408,7 +409,9 @@ _HEADER_TIPS: Dict[str, str] = {
     "target": "Цель, шт — запас, нужный на конец H = Спрос за горизонт + Неснижаемые (ФФ+МП).",
     "shortage": "Нехватка, шт — max(Цель − Покрытие, 0).",
     "moq_step": "Кратность заказа (MOQ) — шаг округления заказа.",
+    "comment": "Комментарий — ⚙️ dual-plan (учтён сниженный план) или \"–\".",
     "algo_version": "Версия алгоритма — версия логики расчёта.",
+    "H_days": "Горизонт прогноза, дней — H = Произв. + Китай→МСК + МСК→МП.",
 }
 
 def _order_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -478,7 +481,7 @@ def _apply_formats(
     int_like = {
         "H_days", "inbound", "onhand", "coverage", "target", "shortage",
         "moq_step", "order_qty", "current_plan", "demand_H", "reduce_plan_to",
-        "eop_first", "eoh"
+        "reduce_plan_to_after", "eop_first", "eoh"
     }
     for row in ws.iter_rows(min_row=2):
         for cell in row:
@@ -677,6 +680,7 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
             "order_qty",
             "stock_status",
             "reduce_plan_to",
+            "reduce_plan_to_after",
             "algo_version",
         ]
         log_df = df_rec.reindex(columns=log_cols)
