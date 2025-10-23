@@ -236,6 +236,20 @@ def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
     df_in.rename(columns=INPUT_COLUMN_ALIASES, inplace=True)
     df_in = df_in.where(pd.notna(df_in), None)
 
+    # --- Нормализация SKU: удаляем неразрывные пробелы, выравниваем регистр, заменяем длинные дефисы ---
+    def _normalize_sku(s: Any) -> str:
+        if not isinstance(s, str):
+            return s
+        return (
+            s.strip()
+            .replace("\xa0", " ")
+            .replace("–", "-")
+            .replace("—", "-")
+            .lower()
+        )
+
+    df_in["sku"] = df_in["sku"].apply(_normalize_sku)
+
     try:
         df_settings = pd.read_excel(xl, SETTINGS_SHEET_NAME)
     except ValueError as e:
@@ -243,6 +257,35 @@ def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
 
     df_settings.rename(columns=SETTINGS_COLUMN_ALIASES, inplace=True)
     df_settings = df_settings.where(pd.notna(df_settings), None)
+
+    # --- Читаем лист "Товары в пути" и нормализуем SKU + даты ETA ---
+    transit_sheet_name = next(
+        (name for name in INTRANSIT_SHEET_NAMES if name in xl.sheet_names),
+        None,
+    )
+    if transit_sheet_name:
+        df_tr = pd.read_excel(xl, transit_sheet_name)
+        df_tr.rename(columns=INTRANSIT_COLUMN_ALIASES, inplace=True)
+        df_tr = df_tr.where(pd.notna(df_tr), None)
+        _ensure_columns(
+            df_tr,
+            REQUIRED_INTRANSIT_COLS,
+            transit_sheet_name,
+            INTRANSIT_COLUMN_DISPLAY,
+        )
+
+        # Нормализация артикулов
+        if "sku" in df_tr.columns:
+            df_tr["sku"] = df_tr["sku"].apply(_normalize_sku)
+
+        # Приведение ETA к формату datetime.date
+        if "eta_cn_msk" in df_tr.columns:
+            df_tr["eta_cn_msk"] = pd.to_datetime(df_tr["eta_cn_msk"], errors="coerce").dt.date
+
+        # Удаляем пустые строки без артикулов
+        df_tr = df_tr[df_tr["sku"].notna()]
+    else:
+        df_tr = pd.DataFrame(columns=["sku", "qty", "eta_cn_msk"])
 
     _ensure_columns(
         df_in,
@@ -255,27 +298,6 @@ def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
             df_in[col] = None
 
     settings = _read_settings(df_settings)
-
-    transit_sheet_name = next(
-        (name for name in INTRANSIT_SHEET_NAMES if name in xl.sheet_names),
-        None,
-    )
-    try:
-        if transit_sheet_name is None:
-            raise ValueError
-        df_tr = pd.read_excel(xl, transit_sheet_name)
-        df_tr.rename(columns=INTRANSIT_COLUMN_ALIASES, inplace=True)
-        df_tr = df_tr.where(pd.notna(df_tr), None)
-        _ensure_columns(
-            df_tr,
-            REQUIRED_INTRANSIT_COLS,
-            transit_sheet_name,
-            INTRANSIT_COLUMN_DISPLAY,
-        )
-    except ValueError:
-        df_tr = pd.DataFrame(columns=REQUIRED_INTRANSIT_COLS)
-    except BadTemplateError:
-        raise
 
     items: List[SkuInput] = []
     moq_step_default = settings["moq_step_default"]
@@ -359,14 +381,17 @@ def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
         if r.get("sku") is None:
             continue
         try:
-            eta = pd.to_datetime(r["eta_cn_msk"]).date() if pd.notna(r["eta_cn_msk"]) else None
-            if eta is None:
-                raise ValueError("Пустая дата ETA")
-            trans.append(InTransitItem(
-                sku=str(r["sku"]),
-                qty=int(r["qty"]),
-                eta_cn_msk=eta,
-            ))
+            sku_norm = _normalize_sku(r.get("sku"))
+            eta_val = r.get("eta_cn_msk")
+            if not eta_val or pd.isna(eta_val):
+                raise ValueError("Пустая или некорректная дата ETA")
+            trans.append(
+                InTransitItem(
+                    sku=sku_norm,
+                    qty=int(r.get("qty", 0) or 0),
+                    eta_cn_msk=eta_val,
+                )
+            )
         except (ValueError, ValidationError) as e:
             raise BadTemplateError(
                 f"На листе '{transit_sheet_name or INTRANSIT_SHEET_NAMES[0]}' строка для SKU "
