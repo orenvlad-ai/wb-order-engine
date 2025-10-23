@@ -748,6 +748,14 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
             "reduce_plan_to",
             "reduce_plan_to_after",
             "algo_version",
+            "debug_r1_smooth",
+            "debug_r2_smooth",
+            "debug_d1",
+            "debug_d2",
+            "debug_demand_first",
+            "debug_demand_after",
+            "debug_eoh_before",
+            "debug_eoh_after",
         ]
         log_df = df_rec.reindex(columns=log_cols)
         if log_df.shape[1]:

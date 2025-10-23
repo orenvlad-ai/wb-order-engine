@@ -41,3 +41,11 @@ class Recommendation(BaseModel):
     algo_version: str = "v1.2a"
     eoh: Optional[float] = None  # Остаток на конец горизонта
     eop_first: Optional[float] = None  # Остаток к первой интранзит-поставке в пределах горизонта
+    debug_r1_smooth: Optional[float] = None
+    debug_r2_smooth: Optional[float] = None
+    debug_d1: Optional[float] = None
+    debug_d2: Optional[float] = None
+    debug_demand_first: Optional[float] = None
+    debug_demand_after: Optional[float] = None
+    debug_eoh_before: Optional[float] = None
+    debug_eoh_after: Optional[float] = None
