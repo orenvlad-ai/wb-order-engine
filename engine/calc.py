@@ -248,6 +248,44 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             elif r2_smooth < float(x.plan_sales_per_day):
                 reduce_plan_to_after = r2_smooth
 
+            # --- ВАЖНО: пересчёты ПОСЛЕ сглаживания ---
+            # Длины отрезков
+            d1 = float(min(max(days_until_next_inbound, 0.0), H))
+            d2 = float(max(H - d1, 0.0))
+
+            # 1) Спрос за горизонт, шт (при наличии поставки: r1 на d1, r2 на d2; иначе r1 на весь H)
+            if d1 > 1e-9 and events:
+                demand_H = r1_smooth * d1 + r2_smooth * d2
+            else:
+                demand_H = r1_smooth * float(H)
+
+            # 2) Цель и нехватка
+            target = demand_H + x.safety_stock_mp + x.safety_stock_ff
+            shortage = max(0.0, target - coverage)
+
+            # 3) Заказ (с округлением до кратности)
+            order_qty = _order_qty(shortage, x.moq_step)
+
+            # 4) Остаток после 1-й поставки (если она в горизонте) — пересчитать по r1_smooth
+            if next_eta_mp is not None and (next_eta_mp - t).days <= H:
+                days_first = max((next_eta_mp - t).days, 0)
+                inbound_first = 0.0
+                for it in in_transit:
+                    if it.sku != x.sku:
+                        continue
+                    eta_mp_i = _eta_to_mp(it, x.lead_time_msk_mp)
+                    if eta_mp_i < t or eta_mp_i > next_eta_mp:
+                        continue
+                    inbound_first += it.qty
+                demand_first = r1_smooth * days_first
+                eop_first = (x.stock_ff + x.stock_mp) + float(inbound_first) - float(demand_first)
+            else:
+                eop_first = None
+
+            # 5) Остаток к приходу расчётной партии (конец H) — пересчитать, используя r1_smooth/r2_smooth
+            # coverage = on_hand + inbound<=H уже посчитан выше
+            eoh = coverage - demand_H
+
         reduce_plan_to_display = (
             reduce_plan_to if stock_status.startswith("⚠️") else "–"
         )
