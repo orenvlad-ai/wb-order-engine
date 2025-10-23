@@ -5,6 +5,13 @@ from typing import Iterable, List, Optional, Tuple
 from .models import SkuInput, InTransitItem, Recommendation
 from .config import ALGO_VERSION
 
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    if lower > upper:
+        lower, upper = upper, lower
+    return max(lower, min(upper, value))
+
+
 def _today() -> date:
     return date.today()
 
@@ -191,6 +198,55 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             eop_first = (x.stock_ff + x.stock_mp) + float(inbound_first) - float(demand_first)
         else:
             eop_first = None
+
+        if reduce_plan_to is not None or reduce_plan_to_after is not None:
+            r1_min = (
+                reduce_plan_to
+                if reduce_plan_to is not None
+                else float(x.plan_sales_per_day)
+            )
+            r2_min = (
+                reduce_plan_to_after
+                if reduce_plan_to_after is not None
+                else float(x.plan_sales_per_day)
+            )
+
+            d1 = float(min(max(days_until_next_inbound, 0.0), H))
+            d2 = float(max(H - d1, 0.0))
+            horizon = d1 + d2
+            if horizon > 1e-9:
+                r_avg = (r1_min * d1 + r2_min * d2) / horizon
+            else:
+                r_avg = r1_min
+
+            r1_smooth = _clamp(r_avg, r1_min, float(x.plan_sales_per_day))
+            r2_smooth = _clamp(r_avg, r2_min, float(x.plan_sales_per_day))
+
+            r1_smooth = float(math.floor(r1_smooth + 1e-9))
+            r2_smooth = float(math.floor(r2_smooth + 1e-9))
+
+            if r1_smooth < r1_min:
+                r1_smooth = float(r1_min)
+            if r2_smooth < r2_min:
+                r2_smooth = float(r2_min)
+
+            if events:
+                while (
+                    min_stock_with_piecewise(r1_smooth, r2_smooth)
+                    < oos_threshold - 1e-9
+                    and r2_smooth > r2_min
+                ):
+                    new_r2 = max(r2_min, r2_smooth - 1.0)
+                    if new_r2 == r2_smooth:
+                        break
+                    r2_smooth = new_r2
+
+            if reduce_plan_to is not None:
+                reduce_plan_to = r1_smooth
+            if reduce_plan_to_after is not None:
+                reduce_plan_to_after = r2_smooth
+            elif r2_smooth < float(x.plan_sales_per_day):
+                reduce_plan_to_after = r2_smooth
 
         reduce_plan_to_display = (
             reduce_plan_to if stock_status.startswith("⚠️") else "–"
