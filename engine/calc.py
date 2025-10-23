@@ -286,6 +286,27 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             # coverage = on_hand + inbound<=H уже посчитан выше
             eoh = coverage - demand_H
 
+            # --- Коррекция при отрицательном eoh ---
+            if eoh < oos_threshold:
+                # Понижаем r2_smooth, пока запас не станет ≥ порога
+                for _ in range(50):
+                    if eoh >= oos_threshold:
+                        break
+                    r2_smooth = max(r2_min, r2_smooth - 1.0)
+                    demand_H = r1_smooth * d1 + r2_smooth * d2
+                    eoh = coverage - demand_H
+                    if r2_smooth <= r2_min:
+                        break
+
+                # Пересчёт цели, нехватки, заказа
+                target = demand_H + x.safety_stock_mp + x.safety_stock_ff
+                shortage = max(0.0, target - coverage)
+                order_qty = _order_qty(shortage, x.moq_step)
+
+                # Если после коррекции запас стал положительным — сохранить новые планы
+                if reduce_plan_to_after is not None or r2_smooth < float(x.plan_sales_per_day):
+                    reduce_plan_to_after = r2_smooth
+
         reduce_plan_to_display = (
             reduce_plan_to if stock_status.startswith("⚠️") else "–"
         )
