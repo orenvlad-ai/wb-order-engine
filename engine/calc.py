@@ -248,6 +248,13 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             r1_smooth = _soften(r1_smooth, p)
             r2_smooth = _soften(r2_smooth, p)
 
+            # Жёсткий нижний предел для r1: не ниже 70% от текущего плана (WB-дружелюбно)
+            if p > 0:
+                r1_floor = p * (1.0 - step_limit)
+            else:
+                r1_floor = r1_min
+            r1_smooth = max(r1_smooth, r1_floor, r1_min)
+
             max_diff = diff_cap * p
             if p > 0 and abs(r1_smooth - r2_smooth) > max_diff:
                 mid = (r1_smooth + r2_smooth) / 2.0
@@ -339,20 +346,24 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
                 if reduce_plan_to_after is not None or r2_smooth < float(x.plan_sales_per_day):
                     reduce_plan_to_after = float(max(r2_min, math.floor(r2_smooth + 1e-9)))
 
-            # --- Если eoh все ещё ниже порога, зажать r1_smooth (до 1-й поставки) ---
+            # --- Крайний случай: если даже при минимально допустимом r2_smooth eoh < порога, поджать r1 ---
             if eoh < oos_threshold and d1 > 1e-9:
-                r1_max_safe = (coverage - oos_threshold - r2_smooth * d2) / d1
-                r1_smooth = max(r1_min, min(r1_smooth, r1_max_safe))
-                r1_smooth = float(math.floor(r1_smooth + 1e-9))
+                if abs(r2_smooth - r2_min) <= 1e-9:
+                    r1_max_safe = (coverage - oos_threshold - r2_smooth * d2) / d1
+                    if r1_max_safe >= r1_floor:
+                        r1_candidate = max(r1_floor, min(r1_smooth, r1_max_safe))
+                    else:
+                        r1_candidate = max(r1_min, min(r1_smooth, r1_max_safe))
+                    r1_smooth = float(math.floor(max(r1_min, r1_candidate) + 1e-9))
 
-                demand_H = r1_smooth * d1 + r2_smooth * d2
-                eoh = coverage - demand_H
-                target = demand_H + x.safety_stock_mp + x.safety_stock_ff
-                shortage = max(0.0, target - coverage)
-                order_qty = _order_qty(shortage, x.moq_step)
+                    demand_H = r1_smooth * d1 + r2_smooth * d2
+                    eoh = coverage - demand_H
+                    target = demand_H + x.safety_stock_mp + x.safety_stock_ff
+                    shortage = max(0.0, target - coverage)
+                    order_qty = _order_qty(shortage, x.moq_step)
 
-                if reduce_plan_to is not None:
-                    reduce_plan_to = float(max(r1_min, math.floor(r1_smooth + 1e-9)))
+                    if reduce_plan_to is not None:
+                        reduce_plan_to = float(max(r1_min, math.floor(r1_smooth + 1e-9)))
 
             debug_r1_smooth = r1_smooth
             debug_r2_smooth = r2_smooth
