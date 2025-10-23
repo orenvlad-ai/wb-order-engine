@@ -122,9 +122,9 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
                     hi = mid
             r = math.floor(lo + 1e-9)
             reduce_plan_to = float(min(plan, max(0.0, r)))
-            stock_status = "⚠️ Не хватает до поставки"
+            stock_status = "⚠️ Не хватает"
         else:
-            stock_status = "✅ Запаса хватает до поставки"
+            stock_status = "Хватает"
             reduce_plan_to = None
 
         if stock_status.startswith("⚠️"):
