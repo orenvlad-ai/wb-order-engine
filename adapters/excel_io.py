@@ -240,13 +240,19 @@ def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
     def _normalize_sku(s: Any) -> str:
         if not isinstance(s, str):
             return s
-        return (
+        # 1) базовая чистка: обрезка, неразрывные пробелы, длинные дефисы, регистр
+        s = (
             s.strip()
             .replace("\xa0", " ")
             .replace("–", "-")
             .replace("—", "-")
             .lower()
         )
+        # 2) убрать пробелы вокруг слэша: " / ", " /", "/ " -> "/"
+        s = s.replace(" / ", "/").replace(" /", "/").replace("/ ", "/")
+        # 3) схлопнуть лишние пробелы (в т.ч. табы/множественные)
+        s = " ".join(s.split())
+        return s
 
     df_in["sku"] = df_in["sku"].apply(_normalize_sku)
 
