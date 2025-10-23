@@ -199,6 +199,15 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         else:
             eop_first = None
 
+        debug_r1_smooth = None
+        debug_r2_smooth = None
+        debug_d1 = None
+        debug_d2 = None
+        debug_demand_first = None
+        debug_demand_after = None
+        debug_eoh_before = None
+        debug_eoh_after = None
+
         if reduce_plan_to is not None or reduce_plan_to_after is not None:
             r1_min = (
                 reduce_plan_to
@@ -285,6 +294,7 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             # 5) Остаток к приходу расчётной партии (конец H) — пересчитать, используя r1_smooth/r2_smooth
             # coverage = on_hand + inbound<=H уже посчитан выше
             eoh = coverage - demand_H
+            debug_eoh_before = eoh
 
             # --- Мгновенная безопасная коррекция r2_smooth по eoh ---
             if eoh < oos_threshold and d2 > 1e-9:
@@ -305,6 +315,29 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
                 # Зафиксировать обновлённый второй план в выдаче
                 if reduce_plan_to_after is not None or r2_smooth < float(x.plan_sales_per_day):
                     reduce_plan_to_after = float(max(r2_min, math.floor(r2_smooth + 1e-9)))
+
+            # --- Если eoh все ещё ниже порога, зажать r1_smooth (до 1-й поставки) ---
+            if eoh < oos_threshold and d1 > 1e-9:
+                r1_max_safe = (coverage - oos_threshold - r2_smooth * d2) / d1
+                r1_smooth = max(r1_min, min(r1_smooth, r1_max_safe))
+                r1_smooth = float(math.floor(r1_smooth + 1e-9))
+
+                demand_H = r1_smooth * d1 + r2_smooth * d2
+                eoh = coverage - demand_H
+                target = demand_H + x.safety_stock_mp + x.safety_stock_ff
+                shortage = max(0.0, target - coverage)
+                order_qty = _order_qty(shortage, x.moq_step)
+
+                if reduce_plan_to is not None:
+                    reduce_plan_to = float(max(r1_min, math.floor(r1_smooth + 1e-9)))
+
+            debug_r1_smooth = r1_smooth
+            debug_r2_smooth = r2_smooth
+            debug_d1 = d1
+            debug_d2 = d2
+            debug_demand_first = r1_smooth * d1
+            debug_demand_after = r2_smooth * d2
+            debug_eoh_after = eoh
 
         reduce_plan_to_display = (
             reduce_plan_to if stock_status.startswith("⚠️") else "–"
@@ -333,5 +366,14 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             algo_version=ALGO_VERSION,
             eoh=eoh,
             eop_first=eop_first,
+            # ниже — временная диагностика, попадет в Log (см. adapters/excel_io.py)
+            debug_r1_smooth=debug_r1_smooth,
+            debug_r2_smooth=debug_r2_smooth,
+            debug_d1=debug_d1,
+            debug_d2=debug_d2,
+            debug_demand_first=debug_demand_first,
+            debug_demand_after=debug_demand_after,
+            debug_eoh_before=debug_eoh_before,
+            debug_eoh_after=debug_eoh_after,
         ))
     return recs
