@@ -17,7 +17,7 @@ OPTIONAL_INPUT_COLS = ["safety_stock_ff", "safety_stock_mp"]
 REQUIRED_INTRANSIT_COLS = ["sku", "qty", "eta_cn_msk"]
 SETTINGS_SHEET_NAME = "Настройки заказа"
 
-INPUT_SHEET_NAMES = ("Input", "Ввод данных", "Ввод")
+INPUT_SHEET_NAMES = ("Ввод данных", "Ввод", "Input")
 INTRANSIT_SHEET_NAMES = ("InTransit", "Товары в пути")
 
 # Отображения колонок листа Recommendations
@@ -611,19 +611,51 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
         df_factory = df_factory.reindex(columns=["Артикул, 货号", "Заказ, штук, 数量（件）"])
         df_factory.to_excel(w, sheet_name="Заказ на фабрику", index=False)
 
-        # 2) Пишем лист "Рекомендации"
+        # 2) Пишем лист "Рекомендации": подтягиваем current_plan и onhand из входного листа
         df_out = df_rec.copy()
         if not df_out.empty:
-            if "current_plan" not in df_out.columns:
-                plan_series = df_out.get("plan_sales_per_day")
-                if isinstance(plan_series, pd.Series):
-                    df_out["current_plan"] = plan_series
-                else:
-                    df_out["current_plan"] = pd.Series([None] * len(df_out), index=df_out.index)
-            if "onhand" not in df_out.columns:
-                stock_ff = df_out["stock_ff"] if "stock_ff" in df_out.columns else pd.Series(0, index=df_out.index)
-                stock_mp = df_out["stock_mp"] if "stock_mp" in df_out.columns else pd.Series(0, index=df_out.index)
-                df_out["onhand"] = pd.to_numeric(stock_ff, errors="coerce").fillna(0) + pd.to_numeric(stock_mp, errors="coerce").fillna(0)
+            plan_map = None
+            onhand_map = None
+            try:
+                with pd.ExcelFile(in_buf) as xl_in:
+                    input_sheet = next((name for name in INPUT_SHEET_NAMES if name in xl_in.sheet_names), None)
+                    if input_sheet:
+                        df_in = pd.read_excel(xl_in, input_sheet)
+                        df_in = df_in.rename(columns=INPUT_COLUMN_ALIASES)
+                        if "sku" in df_in.columns:
+                            for col in ("stock_ff", "stock_mp", "plan_sales_per_day"):
+                                if col in df_in.columns:
+                                    df_in[col] = pd.to_numeric(df_in[col], errors="coerce")
+                            agg_spec = {}
+                            if "plan_sales_per_day" in df_in.columns:
+                                agg_spec["plan_sales_per_day"] = "max"
+                            for col in ("stock_ff", "stock_mp"):
+                                if col in df_in.columns:
+                                    agg_spec[col] = "sum"
+                            if agg_spec:
+                                grp = df_in.groupby("sku", as_index=True).agg(agg_spec)
+                                if "plan_sales_per_day" in grp.columns:
+                                    plan_map = grp["plan_sales_per_day"]
+                                if "stock_ff" in grp.columns or "stock_mp" in grp.columns:
+                                    stock_ff = grp["stock_ff"] if "stock_ff" in grp.columns else pd.Series(0, index=grp.index)
+                                    stock_mp = grp["stock_mp"] if "stock_mp" in grp.columns else pd.Series(0, index=grp.index)
+                                    onhand_map = stock_ff.fillna(0) + stock_mp.fillna(0)
+            except Exception:
+                plan_map = None
+                onhand_map = None
+            finally:
+                in_buf.seek(0)
+
+            if plan_map is not None:
+                df_out["current_plan"] = df_out["sku"].map(plan_map)
+            elif "current_plan" not in df_out.columns:
+                df_out["current_plan"] = pd.Series([None] * len(df_out), index=df_out.index)
+
+            if onhand_map is not None:
+                df_out["onhand"] = df_out["sku"].map(onhand_map).fillna(0)
+            elif "onhand" not in df_out.columns:
+                df_out["onhand"] = 0
+
             df_out.drop(columns=["plan_sales_per_day", "stock_ff", "stock_mp"], errors="ignore", inplace=True)
             df_out = _order_columns(df_out)
         df_out = df_out.rename(columns=RECOMMENDATION_COLUMN_ALIASES)
