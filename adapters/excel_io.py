@@ -25,7 +25,6 @@ INTRANSIT_SHEET_NAMES = ("InTransit", "Товары в пути")
 RECOMMENDATION_COLUMN_ALIASES = {
     "sku":             "Артикул",
     "order_qty":       "Рек.заказ",
-    "stock_status":    "Статус",
     "current_plan":    "Тек.план\nшт/день",
     "reco_before_1p":  "Рек\nдо 1П",
     "stock_before_1":  "Ост. до\n1П",
@@ -48,6 +47,7 @@ RECOMMENDATION_COLUMN_ALIASES = {
     "target":          "Цель",
     "shortage":        "Нехватка",
     "moq_step":        "Кратность\n(MOQ)",
+    "stock_status":    "Статус",
     "algo_version":    "Версия\nалгоритма",
     "oos_threshold":   "_thr",   # служебный столбец, будет скрыт
 }
@@ -426,16 +426,16 @@ _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 
 # Порядок колонок (берём те, что реально есть в данных)
 _ORDER = [
-    "sku", "order_qty", "stock_status",
+    "sku", "order_qty", "onhand",
     "current_plan",
     "reco_before_1p", "stock_before_1", "stock_after_1",
     "reco_before_2p", "stock_before_2", "stock_after_2",
     "reco_before_3p", "stock_before_3", "stock_after_3",
     "reco_before_po", "eoh", "stock_after_po",
     "H_days",
-    "coverage", "inbound", "onhand",
+    "coverage", "inbound",
     "demand_H", "target", "shortage",
-    "moq_step", "algo_version", "oos_threshold",
+    "moq_step", "stock_status", "algo_version", "oos_threshold",
 ]
 
 
