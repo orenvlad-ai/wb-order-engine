@@ -108,25 +108,26 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         stock_before_2 = stock_after_2 = None
         stock_before_3 = stock_after_3 = None
 
-        stock_level = on_hand
+        S = on_hand
         prev_day = 0
         for idx, (day_offset, qty) in enumerate(events, start=1):
             spend = plan * max(day_offset - prev_day, 0)
-            stock_before = stock_level - spend
-            stock_after = stock_before + qty
+            stock_before = S - spend  # «Ост. до XП» может быть отрицательным
+            stock_after = max(stock_before, 0.0) + qty  # «Ост. после XП» считаем от нуля
             if idx == 1:
                 stock_before_1, stock_after_1 = stock_before, stock_after
             elif idx == 2:
                 stock_before_2, stock_after_2 = stock_before, stock_after
             elif idx == 3:
                 stock_before_3, stock_after_3 = stock_before, stock_after
-            stock_level = stock_after
+            S = stock_after  # следующий участок берём от неотрицательного остатка
             prev_day = day_offset
 
         spend_tail = plan * max(H - prev_day, 0)
-        stock_before_po = stock_level - spend_tail
-        eoh = stock_before_po
-        stock_after_po = stock_before_po + float(order_qty) if order_qty > 0 else None
+        stock_before_po = S - spend_tail  # «Ост. до РП» может быть отрицательным
+        eoh = stock_before_po  # «Ост. до РП»
+        # «Ост. после РП»: при отсутствии заказа поле пустое
+        stock_after_po = (stock_before_po + float(order_qty)) if order_qty > 0 else None
         eop_first = stock_after_1
 
         recs.append(Recommendation(
