@@ -144,8 +144,11 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         stock_before_po = S - spend_tail  # «Ост. до РП» может быть отрицательным
         eoh = stock_before_po  # «Ост. до РП»
         reco_before_po = _calc_reco_value(S, tail_duration) if order_qty > 0 else None
-        # «Ост. после РП»: при отсутствии заказа поле пустое
-        stock_after_po = (stock_before_po + float(order_qty)) if order_qty > 0 else None
+        # «Ост. после РП»: при отсутствии заказа поле пустое, иначе считаем от нуля
+        if order_qty > 0:
+            stock_after_po = max(stock_before_po, 0.0) + float(order_qty)
+        else:
+            stock_after_po = None
         eop_first = stock_after_1
 
         recs.append(Recommendation(
