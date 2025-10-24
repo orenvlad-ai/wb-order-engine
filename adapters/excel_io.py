@@ -731,6 +731,26 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
 
     in_buf = io.BytesIO(xlsx_in)
     out_buf = io.BytesIO()
+
+    moq_value: float = 1
+    try:
+        with pd.ExcelFile(in_buf) as xl_settings:
+            if SETTINGS_SHEET_NAME in xl_settings.sheet_names:
+                df_settings_raw = pd.read_excel(xl_settings, SETTINGS_SHEET_NAME)
+                df_settings = df_settings_raw.rename(columns=SETTINGS_COLUMN_ALIASES)
+                if "moq_step_default" in df_settings.columns:
+                    moq_series = pd.to_numeric(df_settings["moq_step_default"], errors="coerce").dropna()
+                    if not moq_series.empty:
+                        first_value = moq_series.iloc[0]
+                        if pd.notna(first_value) and first_value > 0:
+                            moq_value = float(first_value)
+    except Exception:
+        moq_value = 1
+    finally:
+        in_buf.seek(0)
+
+    if pd.isna(moq_value) or moq_value <= 0:
+        moq_value = 1
     with pd.ExcelWriter(out_buf, engine="openpyxl") as w:
         # 1) Формируем лист "Заказ на фабрику" (первый) — устойчивый к пустым/нестандартным данным
         if not df_rec.empty and "order_qty" in df_rec.columns:
@@ -749,6 +769,93 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
         for cell in ws_factory[1]:
             cell.alignment = _CENTER
         _auto_width_all(ws_factory)
+
+        data_start_row = 2
+        last_data_row = ws_factory.max_row
+        sum_formula = (
+            f"=SUM(B{data_start_row}:B{last_data_row})" if last_data_row >= data_start_row else 0
+        )
+        totals_rows = {
+            "units_ru": last_data_row + 1,
+            "units_cn": last_data_row + 2,
+            "boxes_ru": last_data_row + 3,
+            "boxes_cn": last_data_row + 4,
+            "date_ru": last_data_row + 5,
+            "date_cn": last_data_row + 6,
+        }
+
+        align_left = Alignment(horizontal="left", vertical="center")
+        align_right = Alignment(horizontal="right", vertical="center")
+
+        # 1) ИТОГО, ШТУК / 合计（件）
+        cell_label_units_ru = ws_factory.cell(row=totals_rows["units_ru"], column=1, value="ИТОГО, ШТУК")
+        cell_label_units_ru.font = _BOLD
+        cell_label_units_ru.alignment = align_left
+        cell_value_units_ru = ws_factory.cell(row=totals_rows["units_ru"], column=2, value=sum_formula)
+        cell_value_units_ru.font = _BOLD
+        cell_value_units_ru.alignment = align_right
+
+        cell_label_units_cn = ws_factory.cell(row=totals_rows["units_cn"], column=1, value="合计（件）")
+        cell_label_units_cn.font = _BOLD
+        cell_label_units_cn.alignment = align_left
+        cell_value_units_cn = ws_factory.cell(
+            row=totals_rows["units_cn"],
+            column=2,
+            value=f"=B{totals_rows['units_ru']}",
+        )
+        cell_value_units_cn.font = _BOLD
+        cell_value_units_cn.alignment = align_right
+
+        # 2) ИТОГО, КОРОБОВ / 合计（箱）
+        moq_str = f"{moq_value:g}"
+        cell_label_boxes_ru = ws_factory.cell(row=totals_rows["boxes_ru"], column=1, value="ИТОГО, КОРОБОВ")
+        cell_label_boxes_ru.font = _BOLD
+        cell_label_boxes_ru.alignment = align_left
+        cell_value_boxes_ru = ws_factory.cell(
+            row=totals_rows["boxes_ru"],
+            column=2,
+            value=f"=B{totals_rows['units_ru']}/{moq_str}",
+        )
+        cell_value_boxes_ru.font = _BOLD
+        cell_value_boxes_ru.alignment = align_right
+
+        cell_label_boxes_cn = ws_factory.cell(row=totals_rows["boxes_cn"], column=1, value="合计（箱）")
+        cell_label_boxes_cn.font = _BOLD
+        cell_label_boxes_cn.alignment = align_left
+        cell_value_boxes_cn = ws_factory.cell(
+            row=totals_rows["boxes_cn"],
+            column=2,
+            value=f"=B{totals_rows['boxes_ru']}",
+        )
+        cell_value_boxes_cn.font = _BOLD
+        cell_value_boxes_cn.alignment = align_right
+
+        # 3) ДАТА ЗАКАЗА / 下单日期
+        today_str = date.today().strftime("%Y-%m-%d")
+        cell_label_date_ru = ws_factory.cell(row=totals_rows["date_ru"], column=1, value="ДАТА ЗАКАЗА")
+        cell_label_date_ru.font = _BOLD
+        cell_label_date_ru.alignment = align_left
+        cell_value_date_ru = ws_factory.cell(
+            row=totals_rows["date_ru"],
+            column=2,
+            value=today_str,
+        )
+        cell_value_date_ru.font = _BOLD
+        cell_value_date_ru.alignment = align_right
+
+        cell_label_date_cn = ws_factory.cell(row=totals_rows["date_cn"], column=1, value="下单日期")
+        cell_label_date_cn.font = _BOLD
+        cell_label_date_cn.alignment = align_left
+        cell_value_date_cn = ws_factory.cell(
+            row=totals_rows["date_cn"],
+            column=2,
+            value=f"=B{totals_rows['date_ru']}",
+        )
+        cell_value_date_cn.font = _BOLD
+        cell_value_date_cn.alignment = align_right
+
+        for row_idx in totals_rows.values():
+            ws_factory.row_dimensions[row_idx].height = 18
 
         # 2) Пишем лист "Рекомендации": подтягиваем current_plan и onhand из входного листа
         df_out = df_rec.copy()
