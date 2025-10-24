@@ -23,34 +23,33 @@ INTRANSIT_SHEET_NAMES = ("InTransit", "Товары в пути")
 
 # Отображения колонок листа Recommendations
 RECOMMENDATION_COLUMN_ALIASES = {
-    "sku": "Артикул",
-    "order_qty": "Рек.заказ, шт",
-    "stock_status": "Статус запаса",
-    "current_plan": "Текущий план\nшт/день",
-    "eoh": "Ост. до РП, шт",
-    "eop_first": "Ост. после 1П, шт",
-    "stock_before_1": "Ост. до 1П, шт",
-    "stock_after_1": "Ост. после 1П, шт",
-    "stock_before_2": "Ост. до 2П, шт",
-    "stock_after_2": "Ост. после 2П, шт",
-    "stock_before_3": "Ост. до 3П, шт",
-    "stock_after_3": "Ост. после 3П, шт",
-    "stock_before_po": "Ост. до РП, шт",
-    "stock_after_po": "Ост. после РП, шт",
-    "coverage": "Покрытие,\nшт",
-    "inbound": "В пути,\nшт",
-    "onhand": "Остаток на руках,\nшт",
-    "demand_H": "Спрос за\nгоризонт, шт",
-    "target": "Цель, шт",
-    "shortage": "Нехватка, шт",
-    "moq_step": "Кратность\n(MOQ)",
-    "algo_version": "Версия алгоритма",
-    "H_days": "Горизонт прогноза,\nдней",
+    "sku":             "Артикул",
+    "order_qty":       "Рек.заказ",
+    "stock_status":    "Статус",
+    "current_plan":    "Тек.план\nшт/день",
+    "stock_before_1":  "Ост. до\n1П",
+    "stock_after_1":   "Ост. после\n1П",
+    "stock_before_2":  "Ост. до\n2П",
+    "stock_after_2":   "Ост. после\n2П",
+    "stock_before_3":  "Ост. до\n3П",
+    "stock_after_3":   "Ост. после\n3П",
+    "eoh":             "Ост. до\nРП",
+    "stock_after_po":  "Ост. после\nРП",
+    "eop_first":       "Ост. после\n1П",  # унификация
+    "H_days":          "Горизонт\nпрогноза",
+    "coverage":        "Покрытие",
+    "inbound":         "В пути",
+    "onhand":          "Ост. на\nруках",
+    "demand_H":        "Спрос за\nгоризонт",
+    "target":          "Цель",
+    "shortage":        "Нехватка",
+    "moq_step":        "Кратность\n(MOQ)",
+    "algo_version":    "Версия\nалгоритма",
 }
 
-RECOMMENDATION_DISPLAY_TO_INTERNAL = {
-    v: k for k, v in RECOMMENDATION_COLUMN_ALIASES.items()
-}
+RECOMMENDATION_DISPLAY_TO_INTERNAL: Dict[str, str] = {}
+for internal, display in RECOMMENDATION_COLUMN_ALIASES.items():
+    RECOMMENDATION_DISPLAY_TO_INTERNAL.setdefault(display, internal)
 
 # Сопоставление русских заголовков с внутренними ключами
 INPUT_COLUMN_ALIASES = {
@@ -428,7 +427,7 @@ _ORDER = [
     "stock_before_2", "stock_after_2",
     "stock_before_3", "stock_after_3",
     "eoh", "stock_after_po",
-    "eop_first", "H_days",
+    "H_days",
     "coverage", "inbound", "onhand",
     "demand_H", "target", "shortage",
     "moq_step", "algo_version",
@@ -443,16 +442,14 @@ _HEADER_TIPS: Dict[str, str] = {
     "inbound": "В пути, шт — сумма поставок, что успеют на МП до (сегодня+H).",
     "onhand": "Остаток на руках, шт — запасы на момент ввода = Остаток ФФ + Остаток МП.",
     "demand_H": "Спрос за горизонт, шт — продажи за H при текущем плане.",
-    "eoh": "Ост. до РП, шт — остаток накануне прихода расчётной партии (через H), без order_qty.",
+    "eoh": "Остаток за день до прихода расчётной партии, без order_qty.",
     "stock_before_1": "Ост. до 1-й поставки — остаток накануне первой поставки по текущему плану.",
     "stock_after_1": "Ост. после 1-й поставки — остаток сразу после первой поставки.",
     "stock_before_2": "Ост. до 2-й поставки — остаток накануне второй поставки (если есть).",
     "stock_after_2": "Ост. после 2-й поставки — остаток сразу после второй поставки (если есть).",
     "stock_before_3": "Ост. до 3-й поставки — остаток накануне третьей поставки (если есть).",
     "stock_after_3": "Ост. после 3-й поставки — остаток сразу после третьей поставки (если есть).",
-    "stock_before_po": "Ост. до РП — остаток накануне прихода расчётной партии (до рекомендованного заказа).",
-    "stock_after_po": "Ост. после РП — остаток после прихода расчётной партии (при ненулевом заказе).",
-    "eop_first": "Ост. после 1П, шт — остаток сразу после первой поставки (дублирует для совместимости).",
+    "stock_after_po": "Ост. после расчётной партии — остаток после прихода расчётной партии (при ненулевом заказе).",
     "H_days": "Горизонт прогноза, дней — H = Произв. + Китай→МСК + МСК→МП.",
     "coverage": "Покрытие, шт — доступный объём за H = Остаток на руках + В пути.",
     "target": "Цель, шт — запас, нужный на конец H = Спрос за горизонт + Неснижаемые (ФФ+МП).",
@@ -556,7 +553,14 @@ def _apply_formats(
             widths[idx] = max(widths.get(idx, 0), l)
     for idx, w in widths.items():
         col = get_column_letter(idx)
-        ws.column_dimensions[col].width = min(max(w + 2, 8), 40)
+        # Узкие капы для «Ост. …», чуть шире — для длинных заголовков
+        hdr = ws.cell(1, idx).value or ""
+        cap = 22
+        if "Ост." in hdr or "В пути" in hdr or "Покрытие" in hdr:
+            cap = 16
+        if "Версия" in hdr:
+            cap = 18
+        ws.column_dimensions[col].width = min(max(w + 2, 8), cap)
 
 
 def _auto_width_all(ws):
@@ -750,12 +754,12 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
 
             df_out.drop(columns=["plan_sales_per_day", "stock_ff", "stock_mp"], errors="ignore", inplace=True)
             df_out = _order_columns(df_out)
+            df_out = df_out.reindex(columns=[c for c in _ORDER if c in df_out.columns])
         df_out = df_out.rename(columns=RECOMMENDATION_COLUMN_ALIASES)
         df_out.to_excel(w, sheet_name="Рекомендации", index=False)
         ws_recs = w.book["Рекомендации"]
         _apply_formats_localized(ws_recs)
         ws_recs.row_dimensions[1].height = 32
-        _auto_width_all(ws_recs)
         ws_recs.freeze_panes = "A2"
 
         # 3) Пишем скрытый лист Log с техполями (без debug_*)
