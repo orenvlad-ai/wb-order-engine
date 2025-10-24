@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Optional, Union
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -34,18 +34,8 @@ class Recommendation(BaseModel):
     shortage: float
     moq_step: int
     order_qty: int
-    stock_status: Optional[str] = None
-    reduce_plan_to: Optional[Union[float, str]] = None
-    reduce_plan_to_after: Optional[Union[float, str]] = None
-    comment: str
+    stock_status: str
     algo_version: str = "v1.2a"
-    eoh: Optional[float] = None  # Остаток на конец горизонта
-    eop_first: Optional[float] = None  # Остаток к первой интранзит-поставке в пределах горизонта
-    debug_r1_smooth: Optional[float] = None
-    debug_r2_smooth: Optional[float] = None
-    debug_d1: Optional[float] = None
-    debug_d2: Optional[float] = None
-    debug_demand_first: Optional[float] = None
-    debug_demand_after: Optional[float] = None
-    debug_eoh_before: Optional[float] = None
-    debug_eoh_after: Optional[float] = None
+    # Справочные остатки
+    eoh: Optional[float] = None
+    eop_first: Optional[float] = None

@@ -22,8 +22,8 @@ RECOMMENDATION_HEADERS = [
     "Кратность заказа (MOQ)",
     "Рекомендуемый заказ, шт",
     "Статус запаса",
-    "Рекоменд. план, шт/день",
-    "Комментарий",
+    "Ост. к приходу заказа, шт",
+    "Остаток после первой поставки, шт",
     "Версия алгоритма",
 ]
 
@@ -78,8 +78,8 @@ def recommendations_to_excel(
             getattr(r, "moq_step", None),
             getattr(r, "order_qty", None),
             getattr(r, "stock_status", None),
-            getattr(r, "reduce_plan_to", None),
-            getattr(r, "comment", None),
+            getattr(r, "eoh", None),
+            getattr(r, "eop_first", None),
             getattr(r, "algo_version", ALGO_VERSION),
         ])
 
