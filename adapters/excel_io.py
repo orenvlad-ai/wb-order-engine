@@ -776,83 +776,59 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
             f"=SUM(B{data_start_row}:B{last_data_row})" if last_data_row >= data_start_row else 0
         )
         totals_rows = {
-            "units_ru": last_data_row + 1,
-            "units_cn": last_data_row + 2,
-            "boxes_ru": last_data_row + 3,
-            "boxes_cn": last_data_row + 4,
-            "date_ru": last_data_row + 5,
-            "date_cn": last_data_row + 6,
+            "units": last_data_row + 1,
+            "boxes": last_data_row + 2,
+            "date": last_data_row + 3,
         }
 
-        align_left = Alignment(horizontal="left", vertical="center")
+        align_label = Alignment(horizontal="left", vertical="center", wrap_text=True)
         align_right = Alignment(horizontal="right", vertical="center")
 
-        # 1) ИТОГО, ШТУК / 合计（件）
-        cell_label_units_ru = ws_factory.cell(row=totals_rows["units_ru"], column=1, value="ИТОГО, ШТУК")
-        cell_label_units_ru.font = _BOLD
-        cell_label_units_ru.alignment = align_left
-        cell_value_units_ru = ws_factory.cell(row=totals_rows["units_ru"], column=2, value=sum_formula)
-        cell_value_units_ru.font = _BOLD
-        cell_value_units_ru.alignment = align_right
-
-        cell_label_units_cn = ws_factory.cell(row=totals_rows["units_cn"], column=1, value="合计（件）")
-        cell_label_units_cn.font = _BOLD
-        cell_label_units_cn.alignment = align_left
-        cell_value_units_cn = ws_factory.cell(
-            row=totals_rows["units_cn"],
-            column=2,
-            value=f"=B{totals_rows['units_ru']}",
+        # 1) ИТОГО, ШТУК + китайский перевод в одной ячейке
+        cell_label_units = ws_factory.cell(
+            row=totals_rows["units"],
+            column=1,
+            value="ИТОГО, ШТУК\n合计（件）",
         )
-        cell_value_units_cn.font = _BOLD
-        cell_value_units_cn.alignment = align_right
+        cell_label_units.font = _BOLD
+        cell_label_units.alignment = align_label
+        cell_value_units = ws_factory.cell(row=totals_rows["units"], column=2, value=sum_formula)
+        cell_value_units.font = _BOLD
+        cell_value_units.alignment = align_right
 
-        # 2) ИТОГО, КОРОБОВ / 合计（箱）
+        # 2) ИТОГО, КОРОБОВ + китайский перевод в одной ячейке
         moq_str = f"{moq_value:g}"
-        cell_label_boxes_ru = ws_factory.cell(row=totals_rows["boxes_ru"], column=1, value="ИТОГО, КОРОБОВ")
-        cell_label_boxes_ru.font = _BOLD
-        cell_label_boxes_ru.alignment = align_left
-        cell_value_boxes_ru = ws_factory.cell(
-            row=totals_rows["boxes_ru"],
-            column=2,
-            value=f"=B{totals_rows['units_ru']}/{moq_str}",
+        cell_label_boxes = ws_factory.cell(
+            row=totals_rows["boxes"],
+            column=1,
+            value="ИТОГО, КОРОБОВ\n合计（箱）",
         )
-        cell_value_boxes_ru.font = _BOLD
-        cell_value_boxes_ru.alignment = align_right
-
-        cell_label_boxes_cn = ws_factory.cell(row=totals_rows["boxes_cn"], column=1, value="合计（箱）")
-        cell_label_boxes_cn.font = _BOLD
-        cell_label_boxes_cn.alignment = align_left
-        cell_value_boxes_cn = ws_factory.cell(
-            row=totals_rows["boxes_cn"],
+        cell_label_boxes.font = _BOLD
+        cell_label_boxes.alignment = align_label
+        cell_value_boxes = ws_factory.cell(
+            row=totals_rows["boxes"],
             column=2,
-            value=f"=B{totals_rows['boxes_ru']}",
+            value=f"=B{totals_rows['units']}/{moq_str}",
         )
-        cell_value_boxes_cn.font = _BOLD
-        cell_value_boxes_cn.alignment = align_right
+        cell_value_boxes.font = _BOLD
+        cell_value_boxes.alignment = align_right
 
-        # 3) ДАТА ЗАКАЗА / 下单日期
+        # 3) ДАТА ЗАКАЗА + китайский перевод в одной ячейке
         today_str = date.today().strftime("%Y-%m-%d")
-        cell_label_date_ru = ws_factory.cell(row=totals_rows["date_ru"], column=1, value="ДАТА ЗАКАЗА")
-        cell_label_date_ru.font = _BOLD
-        cell_label_date_ru.alignment = align_left
-        cell_value_date_ru = ws_factory.cell(
-            row=totals_rows["date_ru"],
+        cell_label_date = ws_factory.cell(
+            row=totals_rows["date"],
+            column=1,
+            value="ДАТА ЗАКАЗА\n下单日期",
+        )
+        cell_label_date.font = _BOLD
+        cell_label_date.alignment = align_label
+        cell_value_date = ws_factory.cell(
+            row=totals_rows["date"],
             column=2,
             value=today_str,
         )
-        cell_value_date_ru.font = _BOLD
-        cell_value_date_ru.alignment = align_right
-
-        cell_label_date_cn = ws_factory.cell(row=totals_rows["date_cn"], column=1, value="下单日期")
-        cell_label_date_cn.font = _BOLD
-        cell_label_date_cn.alignment = align_left
-        cell_value_date_cn = ws_factory.cell(
-            row=totals_rows["date_cn"],
-            column=2,
-            value=f"=B{totals_rows['date_ru']}",
-        )
-        cell_value_date_cn.font = _BOLD
-        cell_value_date_cn.alignment = align_right
+        cell_value_date.font = _BOLD
+        cell_value_date.alignment = align_right
 
         for row_idx in totals_rows.values():
             ws_factory.row_dimensions[row_idx].height = 18
