@@ -26,8 +26,6 @@ RECOMMENDATION_COLUMN_ALIASES = {
     "sku": "Артикул",
     "order_qty": "Рек.заказ, шт",
     "stock_status": "Статус запаса",
-    "reduce_plan_to": "Рек.план\nшт/день",
-    "reduce_plan_to_after": "Рек.план до\nзаказа",
     "current_plan": "Текущий план\nшт/день",
     "eoh": "Ост. к прих.\nзаказа, шт",
     "eop_first": "Остаток после\nпервой поставки, шт",
@@ -38,7 +36,6 @@ RECOMMENDATION_COLUMN_ALIASES = {
     "target": "Цель, шт",
     "shortage": "Нехватка, шт",
     "moq_step": "Кратность\n(MOQ)",
-    "comment": "Комментарий",
     "algo_version": "Версия алгоритма",
     "H_days": "Горизонт прогноза,\nдней",
 }
@@ -418,23 +415,21 @@ _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 # Порядок колонок (берём те, что реально есть в данных)
 _ORDER = [
     "sku", "order_qty", "stock_status",
-    "reduce_plan_to", "reduce_plan_to_after", "current_plan",
-    "eoh", "eop_first", "H_days", "coverage", "inbound", "onhand",
+    "current_plan", "eoh", "eop_first", "H_days",
+    "coverage", "inbound", "onhand",
     "demand_H", "target", "shortage",
-    "moq_step", "comment", "algo_version",
+    "moq_step", "algo_version",
 ]
 
 
 _HEADER_TIPS: Dict[str, str] = {
     "sku": "Артикул — код товара/модель.",
     "order_qty": "Рекомендуемый заказ, шт — что заказать сейчас (округлено до кратности).",
-    "stock_status": "Статус запаса — хватит ли до ближайшей поставки: ✅ доживаем / ⚠️ не доживаем.",
-    "reduce_plan_to": "Рек.план, шт/день — снижение продаж до 1-й поставки, чтобы не провалиться к порогу OOS.",
-    "reduce_plan_to_after": "Рек.план до заказа — минимальный план после 1-й поставки до H, чтобы запас оставался ≥ порога OOS (считается при дефиците к приходу заказа).",
+    "stock_status": "Статус запаса — минимум запаса на горизонте при текущем плане: ✅ хватает / ⚠️ не хватает.",
     "current_plan": "Текущий план, шт/день — фактический план из «Ввод данных».",
     "inbound": "В пути, шт — сумма поставок, что успеют на МП до (сегодня+H).",
     "onhand": "Остаток на руках, шт — запасы на момент ввода = Остаток ФФ + Остаток МП.",
-    "demand_H": "Спрос за горизонт, шт — продажи за H (при ⚠️ до 1-й поставки — сниженный план, далее — базовый).",
+    "demand_H": "Спрос за горизонт, шт — продажи за H при текущем плане.",
     "eoh": "Ост. к прих. заказа, шт — остаток к моменту прихода новой партии (через H), без order_qty.",
     "eop_first": "Ост. к 1-й пост., шт — остаток к моменту ближайшей интранзит-поставки (без order_qty).",
     "H_days": "Горизонт прогноза, дней — H = Произв. + Китай→МСК + МСК→МП.",
@@ -442,7 +437,6 @@ _HEADER_TIPS: Dict[str, str] = {
     "target": "Цель, шт — запас, нужный на конец H = Спрос за горизонт + Неснижаемые (ФФ+МП).",
     "shortage": "Нехватка, шт — max(Цель − Покрытие, 0).",
     "moq_step": "Кратность заказа (MOQ) — шаг округления заказа.",
-    "comment": "Комментарий — ⚙️ dual-plan (учтён сниженный план) или \"–\".",
     "algo_version": "Версия алгоритма — версия логики расчёта.",
 }
 
@@ -512,8 +506,7 @@ def _apply_formats(
     # Форматы чисел и выравнивание данных
     int_like = {
         "H_days", "inbound", "onhand", "coverage", "target", "shortage",
-        "moq_step", "order_qty", "current_plan", "demand_H", "reduce_plan_to",
-        "reduce_plan_to_after", "eop_first", "eoh"
+        "moq_step", "order_qty", "current_plan", "demand_H", "eop_first", "eoh"
     }
     for row in ws.iter_rows(min_row=2):
         for cell in row:
@@ -745,17 +738,9 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
             "moq_step",
             "order_qty",
             "stock_status",
-            "reduce_plan_to",
-            "reduce_plan_to_after",
             "algo_version",
-            "debug_r1_smooth",
-            "debug_r2_smooth",
-            "debug_d1",
-            "debug_d2",
-            "debug_demand_first",
-            "debug_demand_after",
-            "debug_eoh_before",
-            "debug_eoh_after",
+            "eoh",
+            "eop_first",
         ]
         log_df = df_rec.reindex(columns=log_cols)
         if log_df.shape[1]:
