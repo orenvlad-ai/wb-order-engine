@@ -505,6 +505,7 @@ def _apply_formats_localized(ws):
     if idx_thr:
         ws.column_dimensions[get_column_letter(idx_thr)].hidden = True
 
+    # Точечная подсветка всех ячеек ниже порога
     if idx_status and idx_sku and idx_thr and risk_cols:
         for r in range(2, ws.max_row + 1):
             status_val = str(ws.cell(r, idx_status).value or "")
@@ -517,18 +518,17 @@ def _apply_formats_localized(ws):
                 thr = None
             if thr is None:
                 continue
-            hit_col = None
+            breach_found = False
             for c in risk_cols:
-                val = ws.cell(r, c).value
                 try:
+                    val = ws.cell(r, c).value
                     if val is not None and float(val) < thr:
-                        hit_col = c
-                        break
+                        ws.cell(r, c).fill = _RISK_FILL
+                        breach_found = True
                 except Exception:
                     continue
-            if hit_col:
+            if breach_found:
                 ws.cell(r, idx_sku).fill = _RISK_FILL
-                ws.cell(r, hit_col).fill = _RISK_FILL
 
 
 def _apply_formats(
