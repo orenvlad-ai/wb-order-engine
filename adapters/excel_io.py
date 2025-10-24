@@ -45,6 +45,7 @@ RECOMMENDATION_COLUMN_ALIASES = {
     "shortage":        "Нехватка",
     "moq_step":        "Кратность\n(MOQ)",
     "algo_version":    "Версия\nалгоритма",
+    "oos_threshold":   "_thr",   # служебный столбец, будет скрыт
 }
 
 RECOMMENDATION_DISPLAY_TO_INTERNAL: Dict[str, str] = {}
@@ -430,7 +431,7 @@ _ORDER = [
     "H_days",
     "coverage", "inbound", "onhand",
     "demand_H", "target", "shortage",
-    "moq_step", "algo_version",
+    "moq_step", "algo_version", "oos_threshold",
 ]
 
 
@@ -475,10 +476,24 @@ def _find_col_idx_by_internal(ws, internal_key: str) -> int | None:
 
 
 def _apply_formats_localized(ws):
-    idx_order = _find_col_idx_by_internal(ws, "order_qty")
+    idx_order  = _find_col_idx_by_internal(ws, "order_qty")
     idx_status = _find_col_idx_by_internal(ws, "stock_status")
-    idx_short = _find_col_idx_by_internal(ws, "shortage")
-    idx_cov = _find_col_idx_by_internal(ws, "coverage")
+    idx_short  = _find_col_idx_by_internal(ws, "shortage")
+    idx_cov    = _find_col_idx_by_internal(ws, "coverage")
+    idx_sku    = _find_col_idx_by_internal(ws, "sku")
+    idx_thr    = _find_col_idx_by_internal(ws, "oos_threshold")
+    risk_cols = [
+        _find_col_idx_by_internal(ws, "stock_before_1"),
+        _find_col_idx_by_internal(ws, "stock_after_1"),
+        _find_col_idx_by_internal(ws, "stock_before_2"),
+        _find_col_idx_by_internal(ws, "stock_after_2"),
+        _find_col_idx_by_internal(ws, "stock_before_3"),
+        _find_col_idx_by_internal(ws, "stock_after_3"),
+        _find_col_idx_by_internal(ws, "eoh"),
+        _find_col_idx_by_internal(ws, "stock_before_po"),
+    ]
+    risk_cols = [c for c in risk_cols if c]
+
     _apply_formats(
         ws,
         idx_order=idx_order,
@@ -486,6 +501,34 @@ def _apply_formats_localized(ws):
         idx_short=idx_short,
         idx_cov=idx_cov,
     )
+
+    if idx_thr:
+        ws.column_dimensions[get_column_letter(idx_thr)].hidden = True
+
+    if idx_status and idx_sku and idx_thr and risk_cols:
+        for r in range(2, ws.max_row + 1):
+            status_val = str(ws.cell(r, idx_status).value or "")
+            if "Не хватает" not in status_val:
+                continue
+            thr_cell = ws.cell(r, idx_thr).value
+            try:
+                thr = float(thr_cell) if thr_cell is not None else None
+            except Exception:
+                thr = None
+            if thr is None:
+                continue
+            hit_col = None
+            for c in risk_cols:
+                val = ws.cell(r, c).value
+                try:
+                    if val is not None and float(val) < thr:
+                        hit_col = c
+                        break
+                except Exception:
+                    continue
+            if hit_col:
+                ws.cell(r, idx_sku).fill = _RISK_FILL
+                ws.cell(r, hit_col).fill = _RISK_FILL
 
 
 def _apply_formats(
@@ -536,13 +579,7 @@ def _apply_formats(
             else:
                 cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
-    # Подсветка: красный фон только при статусе ⚠️
-    if idx_status:
-        for r in range(2, ws.max_row + 1):
-            status_val = str(ws.cell(r, idx_status).value or "")
-            if "⚠️" in status_val:
-                for c in range(1, ws.max_column + 1):
-                    ws.cell(r, c).fill = _RISK_FILL
+    # (удалено) глобальное окрашивание всей строки; подсветку делаем в _apply_formats_localized
 
     # Автоширина с учётом переносов (wrap_text=True для шапок уже выставлен выше)
     widths = {}
@@ -756,6 +793,7 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
             df_out = _order_columns(df_out)
             df_out = df_out.reindex(columns=[c for c in _ORDER if c in df_out.columns])
         df_out = df_out.rename(columns=RECOMMENDATION_COLUMN_ALIASES)
+        # Пишем «Рекомендации»: добавляем служебную колонку порога, она уйдёт в скрытую
         df_out.to_excel(w, sheet_name="Рекомендации", index=False)
         ws_recs = w.book["Рекомендации"]
         _apply_formats_localized(ws_recs)

@@ -39,6 +39,7 @@ class Recommendation(BaseModel):
     # Справочные остатки
     eoh: Optional[float] = None                    # Ост. к прих. заказа (до РП), шт
     eop_first: Optional[float] = None              # Остаток после первой поставки, шт
+    oos_threshold: Optional[float] = None          # служебно: порог OOS для форматирования
     stock_before_1: Optional[float] = None         # Ост. до 1П
     stock_after_1: Optional[float] = None          # Ост. после 1П
     stock_before_2: Optional[float] = None         # Ост. до 2П
