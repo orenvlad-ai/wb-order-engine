@@ -40,11 +40,15 @@ class Recommendation(BaseModel):
     eoh: Optional[float] = None                    # Ост. к прих. заказа (до РП), шт
     eop_first: Optional[float] = None              # Остаток после первой поставки, шт
     oos_threshold: Optional[float] = None          # служебно: порог OOS для форматирования
+    reco_before_1p: Optional[float] = None         # Рек. до 1П
     stock_before_1: Optional[float] = None         # Ост. до 1П
     stock_after_1: Optional[float] = None          # Ост. после 1П
+    reco_before_2p: Optional[float] = None         # Рек. до 2П
     stock_before_2: Optional[float] = None         # Ост. до 2П
     stock_after_2: Optional[float] = None          # Ост. после 2П
+    reco_before_3p: Optional[float] = None         # Рек. до 3П
     stock_before_3: Optional[float] = None         # Ост. до 3П
     stock_after_3: Optional[float] = None          # Ост. после 3П
+    reco_before_po: Optional[float] = None         # Рек. до РП
     stock_before_po: Optional[float] = None        # Ост. до РП
     stock_after_po: Optional[float] = None         # Ост. после РП
