@@ -73,7 +73,7 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
     recs: List[Recommendation] = []
     for x in inputs:
         H = _calc_H(x)
-        inbound, next_eta_mp = _inbound_within_H(
+        inbound, _ = _inbound_within_H(
             x.sku, in_transit, x.lead_time_msk_mp, H, t
         )
         coverage = x.stock_ff + x.stock_mp + inbound
@@ -102,22 +102,32 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         target = demand_H + x.safety_stock_mp + x.safety_stock_ff
         shortage = max(0.0, target - coverage)
         order_qty = _order_qty(shortage, x.moq_step)
-        eoh = coverage - demand_H
 
-        if next_eta_mp is not None and (next_eta_mp - t).days <= H:
-            days_first = max((next_eta_mp - t).days, 0)
-            inbound_first = 0.0
-            for it in in_transit:
-                if it.sku != x.sku:
-                    continue
-                eta_mp_i = _eta_to_mp(it, x.lead_time_msk_mp)
-                if eta_mp_i < t or eta_mp_i > next_eta_mp:
-                    continue
-                inbound_first += it.qty
-            demand_first = plan * days_first
-            eop_first = on_hand + float(inbound_first) - float(demand_first)
-        else:
-            eop_first = None
+        # Диагностика остатков по поставкам при текущем плане
+        stock_before_1 = stock_after_1 = None
+        stock_before_2 = stock_after_2 = None
+        stock_before_3 = stock_after_3 = None
+
+        stock_level = on_hand
+        prev_day = 0
+        for idx, (day_offset, qty) in enumerate(events, start=1):
+            spend = plan * max(day_offset - prev_day, 0)
+            stock_before = stock_level - spend
+            stock_after = stock_before + qty
+            if idx == 1:
+                stock_before_1, stock_after_1 = stock_before, stock_after
+            elif idx == 2:
+                stock_before_2, stock_after_2 = stock_before, stock_after
+            elif idx == 3:
+                stock_before_3, stock_after_3 = stock_before, stock_after
+            stock_level = stock_after
+            prev_day = day_offset
+
+        spend_tail = plan * max(H - prev_day, 0)
+        stock_before_po = stock_level - spend_tail
+        eoh = stock_before_po
+        stock_after_po = stock_before_po + float(order_qty) if order_qty > 0 else None
+        eop_first = stock_after_1
 
         recs.append(Recommendation(
             sku=x.sku,
@@ -133,5 +143,13 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             algo_version=ALGO_VERSION,
             eoh=eoh,
             eop_first=eop_first,
+            stock_before_1=stock_before_1,
+            stock_after_1=stock_after_1,
+            stock_before_2=stock_before_2,
+            stock_after_2=stock_after_2,
+            stock_before_3=stock_before_3,
+            stock_after_3=stock_after_3,
+            stock_before_po=stock_before_po,
+            stock_after_po=stock_after_po,
         ))
     return recs

@@ -37,5 +37,13 @@ class Recommendation(BaseModel):
     stock_status: str
     algo_version: str = "v1.2a"
     # Справочные остатки
-    eoh: Optional[float] = None
-    eop_first: Optional[float] = None
+    eoh: Optional[float] = None                    # Ост. к прих. заказа (до РП), шт
+    eop_first: Optional[float] = None              # Остаток после первой поставки, шт
+    stock_before_1: Optional[float] = None         # Ост. до 1П
+    stock_after_1: Optional[float] = None          # Ост. после 1П
+    stock_before_2: Optional[float] = None         # Ост. до 2П
+    stock_after_2: Optional[float] = None          # Ост. после 2П
+    stock_before_3: Optional[float] = None         # Ост. до 3П
+    stock_after_3: Optional[float] = None          # Ост. после 3П
+    stock_before_po: Optional[float] = None        # Ост. до РП
+    stock_after_po: Optional[float] = None         # Ост. после РП
