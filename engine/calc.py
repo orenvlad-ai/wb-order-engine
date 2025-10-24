@@ -143,6 +143,7 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             algo_version=ALGO_VERSION,
             eoh=eoh,
             eop_first=eop_first,
+            oos_threshold=oos_threshold,
             stock_before_1=stock_before_1,
             stock_after_1=stock_after_1,
             stock_before_2=stock_before_2,
