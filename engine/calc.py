@@ -107,25 +107,43 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         stock_before_1 = stock_after_1 = None
         stock_before_2 = stock_after_2 = None
         stock_before_3 = stock_after_3 = None
+        reco_before_1p = reco_before_2p = reco_before_3p = None
 
         S = on_hand
         prev_day = 0
+        def _calc_reco_value(stock_start: float, duration_days: float) -> Optional[int]:
+            if duration_days <= 0:
+                return None
+            if stock_start <= oos_threshold + 1e-9:
+                return None
+            raw = (stock_start - oos_threshold) / duration_days
+            if raw <= 0:
+                return 0
+            value = math.floor(raw + 1e-9)
+            return max(value, 0)
+
         for idx, (day_offset, qty) in enumerate(events, start=1):
             spend = plan * max(day_offset - prev_day, 0)
             stock_before = S - spend  # «Ост. до XП» может быть отрицательным
             stock_after = max(stock_before, 0.0) + qty  # «Ост. после XП» считаем от нуля
+            reco_value = _calc_reco_value(S, max(day_offset - prev_day, 0))
             if idx == 1:
                 stock_before_1, stock_after_1 = stock_before, stock_after
+                reco_before_1p = reco_value
             elif idx == 2:
                 stock_before_2, stock_after_2 = stock_before, stock_after
+                reco_before_2p = reco_value
             elif idx == 3:
                 stock_before_3, stock_after_3 = stock_before, stock_after
+                reco_before_3p = reco_value
             S = stock_after  # следующий участок берём от неотрицательного остатка
             prev_day = day_offset
 
-        spend_tail = plan * max(H - prev_day, 0)
+        tail_duration = max(H - prev_day, 0)
+        spend_tail = plan * tail_duration
         stock_before_po = S - spend_tail  # «Ост. до РП» может быть отрицательным
         eoh = stock_before_po  # «Ост. до РП»
+        reco_before_po = _calc_reco_value(S, tail_duration) if order_qty > 0 else None
         # «Ост. после РП»: при отсутствии заказа поле пустое
         stock_after_po = (stock_before_po + float(order_qty)) if order_qty > 0 else None
         eop_first = stock_after_1
@@ -145,12 +163,16 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
             eoh=eoh,
             eop_first=eop_first,
             oos_threshold=oos_threshold,
+            reco_before_1p=reco_before_1p,
             stock_before_1=stock_before_1,
             stock_after_1=stock_after_1,
+            reco_before_2p=reco_before_2p,
             stock_before_2=stock_before_2,
             stock_after_2=stock_after_2,
+            reco_before_3p=reco_before_3p,
             stock_before_3=stock_before_3,
             stock_after_3=stock_after_3,
+            reco_before_po=reco_before_po,
             stock_before_po=stock_before_po,
             stock_after_po=stock_after_po,
         ))

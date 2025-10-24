@@ -27,12 +27,16 @@ RECOMMENDATION_COLUMN_ALIASES = {
     "order_qty":       "Рек.заказ",
     "stock_status":    "Статус",
     "current_plan":    "Тек.план\nшт/день",
+    "reco_before_1p":  "Рек\nдо 1П",
     "stock_before_1":  "Ост. до\n1П",
     "stock_after_1":   "Ост. после\n1П",
+    "reco_before_2p":  "Рек\nдо 2П",
     "stock_before_2":  "Ост. до\n2П",
     "stock_after_2":   "Ост. после\n2П",
+    "reco_before_3p":  "Рек\nдо 3П",
     "stock_before_3":  "Ост. до\n3П",
     "stock_after_3":   "Ост. после\n3П",
+    "reco_before_po":  "Рек\nдо РП",
     "eoh":             "Ост. до\nРП",
     "stock_after_po":  "Ост. после\nРП",
     "eop_first":       "Ост. после\n1П",  # унификация
@@ -424,10 +428,10 @@ _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 _ORDER = [
     "sku", "order_qty", "stock_status",
     "current_plan",
-    "stock_before_1", "stock_after_1",
-    "stock_before_2", "stock_after_2",
-    "stock_before_3", "stock_after_3",
-    "eoh", "stock_after_po",
+    "reco_before_1p", "stock_before_1", "stock_after_1",
+    "reco_before_2p", "stock_before_2", "stock_after_2",
+    "reco_before_3p", "stock_before_3", "stock_after_3",
+    "reco_before_po", "eoh", "stock_after_po",
     "H_days",
     "coverage", "inbound", "onhand",
     "demand_H", "target", "shortage",
@@ -565,15 +569,21 @@ def _apply_formats(
             header_internal[col_idx] = name
 
     # Форматы чисел и выравнивание данных
-    int_like = {
+    int_like_right = {
         "H_days", "inbound", "onhand", "coverage", "target", "shortage",
         "moq_step", "order_qty", "current_plan", "demand_H", "eop_first", "eoh"
+    }
+    int_like_center = {
+        "reco_before_1p", "reco_before_2p", "reco_before_3p", "reco_before_po"
     }
     for row in ws.iter_rows(min_row=2):
         for cell in row:
             header_value = header_internal.get(cell.column)
             cell.border = _BORDER
-            if header_value in int_like:
+            if header_value in int_like_center:
+                cell.number_format = "0"
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            elif header_value in int_like_right:
                 cell.number_format = "0"
                 cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=True)
             else:
@@ -779,10 +789,10 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
                 df_out["onhand"] = 0
 
             diag_cols = [
-                "stock_before_1", "stock_after_1",
-                "stock_before_2", "stock_after_2",
-                "stock_before_3", "stock_after_3",
-                "stock_before_po", "stock_after_po",
+                "reco_before_1p", "stock_before_1", "stock_after_1",
+                "reco_before_2p", "stock_before_2", "stock_after_2",
+                "reco_before_3p", "stock_before_3", "stock_after_3",
+                "reco_before_po", "stock_before_po", "stock_after_po",
                 "eop_first",
             ]
             for col in diag_cols:
