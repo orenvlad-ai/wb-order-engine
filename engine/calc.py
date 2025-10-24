@@ -98,81 +98,82 @@ def calculate(inputs: List[SkuInput], in_transit: List[InTransitItem]) -> List[R
         else:
             stock_status = "Хватает"
 
-        demand_H = float(H) * plan
-        target = demand_H + x.safety_stock_mp + x.safety_stock_ff
-        shortage = max(0.0, target - coverage)
-        order_qty = _order_qty(shortage, x.moq_step)
+        # ------------- Пошаговый расчёт "лесенкой" -------------
 
-        # Диагностика остатков по поставкам при текущем плане
+        # Диагностика остатков и рекомендуемых планов на участках
         stock_before_1 = stock_after_1 = None
         stock_before_2 = stock_after_2 = None
         stock_before_3 = stock_after_3 = None
         reco_before_1p = reco_before_2p = reco_before_3p = None
-        min_stock_1p = min_stock_2p = min_stock_3p = None
 
         S = on_hand
         prev_day = 0
-        def _calc_reco_value(stock_start: float, duration_days: float) -> Optional[int]:
-            if duration_days <= 0:
-                return None
-            if stock_start <= oos_threshold + 1e-9:
-                return None
-            raw = (stock_start - oos_threshold) / duration_days
-            if raw <= 0:
-                return 0
-            value = math.floor(raw + 1e-9)
-            return max(value, 0)
+        demand_used = 0.0
+
+        def _safe_rate(S0: float, d: int, p_current: float, thr: float) -> float:
+            if d <= 0:
+                return p_current
+            r_star = max(0.0, math.floor((S0 - thr) / float(d)))
+            return float(min(r_star, p_current))
 
         for idx, (day_offset, qty) in enumerate(events, start=1):
-            spend = plan * max(day_offset - prev_day, 0)
-            stock_before = S - spend  # «Ост. до XП» может быть отрицательным
-            stock_after = max(stock_before, 0.0) + qty  # «Ост. после XП» считаем от нуля
-            segment_min_stock = min(S, stock_before)
-            reco_value = _calc_reco_value(S, max(day_offset - prev_day, 0))
+            span = max(day_offset - prev_day, 0)
+            if span > 0:
+                stock_if_plan = S - plan * span
+                if stock_if_plan >= oos_threshold - 1e-9:
+                    r_use = plan
+                    reco_val: Optional[float] = None
+                else:
+                    r_use = _safe_rate(S, span, plan, oos_threshold)
+                    reco_val = r_use
+                demand_used += r_use * span
+                stock_before = S - r_use * span
+            else:
+                r_use = plan
+                reco_val = None
+                stock_before = S
+            stock_after = max(stock_before, 0.0) + qty
+
             if idx == 1:
                 stock_before_1, stock_after_1 = stock_before, stock_after
-                reco_before_1p = reco_value
-                min_stock_1p = segment_min_stock
+                reco_before_1p = reco_val
             elif idx == 2:
                 stock_before_2, stock_after_2 = stock_before, stock_after
-                reco_before_2p = reco_value
-                min_stock_2p = segment_min_stock
+                reco_before_2p = reco_val
             elif idx == 3:
                 stock_before_3, stock_after_3 = stock_before, stock_after
-                reco_before_3p = reco_value
-                min_stock_3p = segment_min_stock
-            S = stock_after  # следующий участок берём от неотрицательного остатка
+                reco_before_3p = reco_val
+
+            S = stock_after
             prev_day = day_offset
 
-        tail_duration = max(H - prev_day, 0)
-        spend_tail = plan * tail_duration
-        stock_before_po = S - spend_tail  # «Ост. до РП» может быть отрицательным
-        eoh = stock_before_po  # «Ост. до РП»
-        reco_before_po = _calc_reco_value(S, tail_duration) if order_qty > 0 else None
-        min_stock_po = min(S, stock_before_po) if tail_duration > 0 else S
-        # «Ост. после РП»: при отсутствии заказа поле пустое, иначе считаем от нуля
+        d_tail = max(H - prev_day, 0)
+        if d_tail > 0:
+            stock_if_plan = S - plan * d_tail
+            if stock_if_plan >= oos_threshold - 1e-9:
+                r_tail = plan
+                reco_before_po = None
+            else:
+                r_tail = _safe_rate(S, d_tail, plan, oos_threshold)
+                reco_before_po = r_tail
+            demand_used += r_tail * d_tail
+            stock_before_po = S - r_tail * d_tail
+        else:
+            r_tail = plan
+            stock_before_po = S
+            reco_before_po = None
+
+        eoh = stock_before_po
+        demand_H = demand_used
+        target = demand_H + x.safety_stock_mp + x.safety_stock_ff
+        shortage = max(0.0, target - coverage)
+        order_qty = _order_qty(shortage, x.moq_step)
+
         if order_qty > 0:
             stock_after_po = max(stock_before_po, 0.0) + float(order_qty)
         else:
             stock_after_po = None
         eop_first = stock_after_1
-
-        # Скрываем рекомендации, если запас на участке не падает ниже порога OOS
-        def _mask_if_safe(
-            reco_val: Optional[float], min_stock_val: Optional[float]
-        ) -> Optional[float]:
-            if reco_val is None:
-                return None
-            if min_stock_val is None:
-                return reco_val
-            if min_stock_val >= oos_threshold - 1e-9:
-                return None
-            return reco_val
-
-        reco_before_1p = _mask_if_safe(reco_before_1p, min_stock_1p)
-        reco_before_2p = _mask_if_safe(reco_before_2p, min_stock_2p)
-        reco_before_3p = _mask_if_safe(reco_before_3p, min_stock_3p)
-        reco_before_po = _mask_if_safe(reco_before_po, min_stock_po)
 
         recs.append(Recommendation(
             sku=x.sku,
