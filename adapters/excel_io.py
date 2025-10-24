@@ -419,6 +419,8 @@ def read_input(xlsx_bytes: bytes) -> Tuple[List[SkuInput], List[InTransitItem]]:
 
 _HEADER_FILL = PatternFill(start_color="FFEFEFEF", end_color="FFEFEFEF", fill_type="solid")
 _RISK_FILL   = PatternFill(start_color="FFFFE5E5", end_color="FFFFE5E5", fill_type="solid")
+_RECO_FILL   = PatternFill(start_color="FFFFFFCC", end_color="FFFFFFCC", fill_type="solid")  # очень светло-желтый
+_PLAN_FILL   = PatternFill(start_color="FFE6F7E6", end_color="FFE6F7E6", fill_type="solid")  # очень светло-зеленый
 _BOLD = Font(bold=True)
 _CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 _THIN = Side(border_style="thin", color="FFBFBFBF")
@@ -486,6 +488,7 @@ def _apply_formats_localized(ws):
     idx_cov    = _find_col_idx_by_internal(ws, "coverage")
     idx_sku    = _find_col_idx_by_internal(ws, "sku")
     idx_thr    = _find_col_idx_by_internal(ws, "oos_threshold")
+    idx_plan   = _find_col_idx_by_internal(ws, "current_plan")
     risk_cols = [
         _find_col_idx_by_internal(ws, "stock_before_1"),
         _find_col_idx_by_internal(ws, "stock_after_1"),
@@ -498,6 +501,14 @@ def _apply_formats_localized(ws):
     ]
     risk_cols = [c for c in risk_cols if c]
 
+    reco_cols = [
+        _find_col_idx_by_internal(ws, "reco_before_1p"),
+        _find_col_idx_by_internal(ws, "reco_before_2p"),
+        _find_col_idx_by_internal(ws, "reco_before_3p"),
+        _find_col_idx_by_internal(ws, "reco_before_po"),
+    ]
+    reco_cols = [c for c in reco_cols if c]
+
     _apply_formats(
         ws,
         idx_order=idx_order,
@@ -509,7 +520,7 @@ def _apply_formats_localized(ws):
     if idx_thr:
         ws.column_dimensions[get_column_letter(idx_thr)].hidden = True
 
-    # Точечная подсветка всех ячеек ниже порога
+    # Точечная подсветка всех ячеек ниже порога (красный)
     if idx_status and idx_sku and idx_thr and risk_cols:
         for r in range(2, ws.max_row + 1):
             status_val = str(ws.cell(r, idx_status).value or "")
@@ -533,6 +544,22 @@ def _apply_formats_localized(ws):
                     continue
             if breach_found:
                 ws.cell(r, idx_sku).fill = _RISK_FILL
+
+    if reco_cols and idx_plan:
+        for r in range(2, ws.max_row + 1):
+            any_reco = False
+            for c in reco_cols:
+                val = ws.cell(r, c).value
+                if val is None or val == "–":
+                    continue
+                try:
+                    float(val)
+                except Exception:
+                    continue
+                ws.cell(r, c).fill = _RECO_FILL
+                any_reco = True
+            if any_reco:
+                ws.cell(r, idx_plan).fill = _PLAN_FILL
 
 
 def _apply_formats(
