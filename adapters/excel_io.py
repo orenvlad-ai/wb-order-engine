@@ -27,8 +27,16 @@ RECOMMENDATION_COLUMN_ALIASES = {
     "order_qty": "Рек.заказ, шт",
     "stock_status": "Статус запаса",
     "current_plan": "Текущий план\nшт/день",
-    "eoh": "Ост. к прих.\nзаказа, шт",
-    "eop_first": "Остаток после\nпервой поставки, шт",
+    "eoh": "Ост. до РП, шт",
+    "eop_first": "Ост. после 1П, шт",
+    "stock_before_1": "Ост. до 1П, шт",
+    "stock_after_1": "Ост. после 1П, шт",
+    "stock_before_2": "Ост. до 2П, шт",
+    "stock_after_2": "Ост. после 2П, шт",
+    "stock_before_3": "Ост. до 3П, шт",
+    "stock_after_3": "Ост. после 3П, шт",
+    "stock_before_po": "Ост. до РП, шт",
+    "stock_after_po": "Ост. после РП, шт",
     "coverage": "Покрытие,\nшт",
     "inbound": "В пути,\nшт",
     "onhand": "Остаток на руках,\nшт",
@@ -415,7 +423,12 @@ _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 # Порядок колонок (берём те, что реально есть в данных)
 _ORDER = [
     "sku", "order_qty", "stock_status",
-    "current_plan", "eoh", "eop_first", "H_days",
+    "current_plan",
+    "stock_before_1", "stock_after_1",
+    "stock_before_2", "stock_after_2",
+    "stock_before_3", "stock_after_3",
+    "eoh", "stock_after_po",
+    "eop_first", "H_days",
     "coverage", "inbound", "onhand",
     "demand_H", "target", "shortage",
     "moq_step", "algo_version",
@@ -430,8 +443,16 @@ _HEADER_TIPS: Dict[str, str] = {
     "inbound": "В пути, шт — сумма поставок, что успеют на МП до (сегодня+H).",
     "onhand": "Остаток на руках, шт — запасы на момент ввода = Остаток ФФ + Остаток МП.",
     "demand_H": "Спрос за горизонт, шт — продажи за H при текущем плане.",
-    "eoh": "Ост. к прих. заказа, шт — остаток к моменту прихода новой партии (через H), без order_qty.",
-    "eop_first": "Ост. к 1-й пост., шт — остаток к моменту ближайшей интранзит-поставки (без order_qty).",
+    "eoh": "Ост. до РП, шт — остаток накануне прихода расчётной партии (через H), без order_qty.",
+    "stock_before_1": "Ост. до 1-й поставки — остаток накануне первой поставки по текущему плану.",
+    "stock_after_1": "Ост. после 1-й поставки — остаток сразу после первой поставки.",
+    "stock_before_2": "Ост. до 2-й поставки — остаток накануне второй поставки (если есть).",
+    "stock_after_2": "Ост. после 2-й поставки — остаток сразу после второй поставки (если есть).",
+    "stock_before_3": "Ост. до 3-й поставки — остаток накануне третьей поставки (если есть).",
+    "stock_after_3": "Ост. после 3-й поставки — остаток сразу после третьей поставки (если есть).",
+    "stock_before_po": "Ост. до РП — остаток накануне прихода расчётной партии (до рекомендованного заказа).",
+    "stock_after_po": "Ост. после РП — остаток после прихода расчётной партии (при ненулевом заказе).",
+    "eop_first": "Ост. после 1П, шт — остаток сразу после первой поставки (дублирует для совместимости).",
     "H_days": "Горизонт прогноза, дней — H = Произв. + Китай→МСК + МСК→МП.",
     "coverage": "Покрытие, шт — доступный объём за H = Остаток на руках + В пути.",
     "target": "Цель, шт — запас, нужный на конец H = Спрос за горизонт + Неснижаемые (ФФ+МП).",
@@ -716,6 +737,17 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
             elif "onhand" not in df_out.columns:
                 df_out["onhand"] = 0
 
+            diag_cols = [
+                "stock_before_1", "stock_after_1",
+                "stock_before_2", "stock_after_2",
+                "stock_before_3", "stock_after_3",
+                "stock_before_po", "stock_after_po",
+                "eop_first",
+            ]
+            for col in diag_cols:
+                if col in df_out.columns:
+                    df_out[col] = df_out[col].where(pd.notna(df_out[col]), "–")
+
             df_out.drop(columns=["plan_sales_per_day", "stock_ff", "stock_mp"], errors="ignore", inplace=True)
             df_out = _order_columns(df_out)
         df_out = df_out.rename(columns=RECOMMENDATION_COLUMN_ALIASES)
@@ -726,7 +758,7 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
         _auto_width_all(ws_recs)
         ws_recs.freeze_panes = "A2"
 
-        # 3) Пишем скрытый лист Log с техполями
+        # 3) Пишем скрытый лист Log с техполями (без debug_*)
         log_cols = [
             "sku",
             "H_days",
@@ -739,8 +771,6 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
             "order_qty",
             "stock_status",
             "algo_version",
-            "eoh",
-            "eop_first",
         ]
         log_df = df_rec.reindex(columns=log_cols)
         if log_df.shape[1]:
