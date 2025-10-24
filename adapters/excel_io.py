@@ -526,6 +526,8 @@ def _apply_formats_localized(ws):
             status_val = str(ws.cell(r, idx_status).value or "")
             if "Не хватает" not in status_val:
                 continue
+            # 1) Артикул — жёлтый, чтобы даже без отрицательных остатков строка была видна
+            ws.cell(r, idx_sku).fill = _RECO_FILL
             thr_cell = ws.cell(r, idx_thr).value
             try:
                 thr = float(thr_cell) if thr_cell is not None else None
@@ -533,17 +535,13 @@ def _apply_formats_localized(ws):
                 thr = None
             if thr is None:
                 continue
-            breach_found = False
             for c in risk_cols:
                 try:
                     val = ws.cell(r, c).value
                     if val is not None and float(val) < thr:
                         ws.cell(r, c).fill = _RISK_FILL
-                        breach_found = True
                 except Exception:
                     continue
-            if breach_found:
-                ws.cell(r, idx_sku).fill = _RISK_FILL
 
     if reco_cols and idx_plan:
         for r in range(2, ws.max_row + 1):
