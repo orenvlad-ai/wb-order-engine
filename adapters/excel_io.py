@@ -830,8 +830,9 @@ def build_output(xlsx_in: bytes, recs: List[Recommendation]) -> bytes:
         cell_value_date.font = _BOLD
         cell_value_date.alignment = align_right
 
+        # Увеличиваем высоту строк с двустрочными подписями для читаемости
         for row_idx in totals_rows.values():
-            ws_factory.row_dimensions[row_idx].height = 18
+            ws_factory.row_dimensions[row_idx].height = 28
 
         # 2) Пишем лист "Рекомендации": подтягиваем current_plan и onhand из входного листа
         df_out = df_rec.copy()
