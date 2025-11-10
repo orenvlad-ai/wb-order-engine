@@ -718,6 +718,37 @@ def generate_input_template() -> io.BytesIO:
     ])
     _auto_width_all(ws_transit)
 
+    # Новый лист: Пояснения к параметрам
+    ws_info = wb.create_sheet("Пояснения к параметрам")
+    ws_info.append(["Параметр", "Описание"])
+    ws_info["A1"].font = _BOLD
+    ws_info["B1"].font = _BOLD
+
+    info_rows = [
+        [
+            "Порог неснижаемого МП при OOS (%)",
+            "Процент от неснижаемого остатка МП, при достижении которого система считает, что товар «на грани аутовстока». Используется для расчёта момента, когда нужно снизить продажи или сделать заказ.",
+        ],
+        [
+            "Коэф. несн. ФФ (Fulfillment)",
+            "Количество дней запаса, которое должно быть на Фулфилменте (Москва), чтобы прожить между поставками из Китая и успеть пополнить склады WB. По текущей схеме (поставка из Китая раз в 14 дней): рекомендуемое значение = 14.",
+        ],
+        [
+            "Коэф. несн. МП (Marketplace)",
+            "Количество дней запаса, которое должно быть на складах WB, чтобы не допустить обнуления между подсортами. По текущей схеме (4 склада, пополнение каждого раз в 4 недели): рекомендуемое значение = 28.",
+        ],
+    ]
+
+    for row in info_rows:
+        ws_info.append(row)
+
+    for col in ws_info.columns:
+        max_length = max(len(str(cell.value or "")) for cell in col)
+        ws_info.column_dimensions[col[0].column_letter].width = min(max(max_length + 2, 20), 100)
+
+    for cell in ws_info["A"] + ws_info["B"]:
+        cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
