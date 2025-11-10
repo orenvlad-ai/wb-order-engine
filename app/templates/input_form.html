@@ -48,6 +48,7 @@
 
     function addTransitRow(){
       const tbody = document.getElementById('transitBody');
+      if (!tbody) { return; }
       const tr = document.createElement('tr');
 
       tr.innerHTML = `
@@ -59,9 +60,12 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('addTransit').addEventListener('click', addTransitRow);
-      // одна стартовая строка
-      addTransitRow();
+      const addTransitBtn = document.getElementById('addTransit');
+      if (addTransitBtn) {
+        addTransitBtn.addEventListener('click', addTransitRow);
+        // одна стартовая строка
+        addTransitRow();
+      }
 
       const form = document.querySelector('form');
       const submitButton = form ? form.querySelector('button[type="submit"]') : null;
@@ -343,90 +347,7 @@
 <body>
   <h1>WB Order Engine</h1>
 
-  <form method="post" action="/calc_excel">
-    <div class="row-1">
-      <label>Артикул:
-        <input type="text" name="sku" placeholder="Например: SMK_iPhone15_16" required>
-      </label>
-    </div>
-
-    <div class="row">
-      <label>Остаток на ФФ:
-        <input type="number" name="stock_ff" min="0" placeholder="например, 1000" required>
-      </label>
-      <label>Остаток на МП:
-        <input type="number" name="stock_mp" min="0" placeholder="например, 1700" required>
-      </label>
-    </div>
-
-    <div class="row">
-      <label>План продаж, шт/день:
-        <input type="number" name="plan_sales_per_day" min="0" step="0.01" placeholder="например, 12.5" required>
-        <small>Можно дробное (например, 12.5)</small>
-      </label>
-      <label>Кратность заказа (MOQ):
-        <input type="number" name="moq_step" min="1" step="1" placeholder="например, 250" required>
-      </label>
-    </div>
-
-    <div class="row-1">
-      <label>Срок производства, дней:
-        <input type="number" name="prod_lead_time_days" min="0" placeholder="например, 15" required>
-      </label>
-    </div>
-
-    <div class="row">
-      <label>Доставка Китай → МСК, дней:
-        <input type="number" name="lead_time_cn_msk" min="0" placeholder="например, 25" required>
-      </label>
-      <label>Доставка МСК → МП, дней:
-        <input type="number" name="lead_time_msk_mp" min="0" placeholder="например, 7" required>
-      </label>
-    </div>
-
-    <div class="row">
-      <label>Неснижаемый остаток на ФФ:
-        <input type="number" name="safety_stock_ff" min="0" placeholder="например, 1000" required>
-        <small>Минимальный остаток на складе продавца (ФФ), не участвующий в продаже.</small>
-      </label>
-      <label>Неснижаемый остаток на МП:
-        <input type="number" name="safety_stock_mp" min="0" placeholder="например, 1000" required>
-        <small>Минимальный остаток на маркетплейсе, который нельзя проедать.</small>
-      </label>
-    </div>
-
-    <fieldset>
-      <legend>Товар в пути (Китай → МСК)</legend>
-      <div class="actions" style="justify-content:flex-start; margin: 0 0 8px 0;">
-        <button type="button" id="addTransit" class="btn-secondary">+ Добавить партию</button>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Количество, шт</th>
-            <th>Дата прибытия на ФФ (ГГГГ-ММ-ДД)</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="transitBody"></tbody>
-      </table>
-      <small>Все партии относятся к указанному выше SKU.</small>
-    </fieldset>
-
-    <div class="actions">
-      <button type="submit">📊 Рассчитать и скачать Excel</button>
-    </div>
-
-    <!-- Новая панель действий: кнопка скачивания шаблона -->
-    <div class="actions" style="justify-content:flex-start; margin-top:12px;">
-      <a
-        class="btn-secondary"
-        href="/download_template"
-        rel="noopener"
-        aria-label="Скачать Excel-шаблон для заполнения"
-      >📥 Скачать шаблон</a>
-    </div>
-  </form>
+  <!-- Ручная форма расчёта удалена: оставлены загрузка Excel и управление расчётом. -->
 
   <div id="calcStatus" class="upload-status"></div>
 
@@ -437,6 +358,7 @@
     </div>
     <div id="uploadStatus" class="upload-status"></div>
     <div class="actions" style="justify-content:center; margin-top:16px;">
+      <a class="btn-secondary" href="/download_template" rel="noopener">📥 Скачать шаблон</a>
       <button id="processExcelBtn" class="btn-secondary" type="button" disabled tabindex="0">▶ Запустить расчёт</button>
       <button id="downloadResultBtn" class="btn-secondary" type="button" disabled tabindex="0">⬇ Скачать результат</button>
     </div>
