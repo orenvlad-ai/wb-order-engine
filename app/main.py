@@ -1,6 +1,7 @@
 # app/main.py
-from datetime import date
+from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
@@ -12,6 +13,9 @@ from engine.config import ALGO_VERSION
 from adapters.excel_io import BadTemplateError, build_output, generate_input_template, read_input
 import uvicorn
 import logging
+
+LAST_RESULTS_DIR = Path("last_results")
+LAST_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 app = FastAPI(title="WB Order Engine")
@@ -67,9 +71,29 @@ async def upload_excel(file: UploadFile = File(...)):
         recs = calculate(items, in_transit)
         out_bytes = build_output(content, recs)
 
-        fname = f"Planner_Recommendations_{date.today().isoformat()}.xlsx"
+        now = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fname = f"Planner_Recommendations_{now}.xlsx"
+        result_path = LAST_RESULTS_DIR / fname
+        with open(result_path, "wb") as f_out:
+            f_out.write(out_bytes)
+
+        try:
+            files = sorted(
+                [p for p in LAST_RESULTS_DIR.glob("*.xlsx") if p.is_file()],
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            for old in files[5:]:
+                try:
+                    old.unlink()
+                except OSError:
+                    continue
+        except Exception:
+            pass
+
+        buffer = BytesIO(out_bytes)
         return StreamingResponse(
-            BytesIO(out_bytes),
+            buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="{fname}"'}
         )
@@ -83,6 +107,54 @@ async def upload_excel(file: UploadFile = File(...)):
             status_code=500,
             content={"detail": "Внутренняя ошибка при обработке Excel"}
         )
+
+
+@app.get("/last_results")
+async def list_last_results():
+    try:
+        files = sorted(
+            [p for p in LAST_RESULTS_DIR.glob("*.xlsx") if p.is_file()],
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )[:5]
+    except Exception:
+        files = []
+
+    result = []
+    for p in files:
+        try:
+            stat = p.stat()
+            result.append(
+                {
+                    "name": p.name,
+                    "size": stat.st_size,
+                    "mtime": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+                }
+            )
+        except Exception:
+            continue
+    return JSONResponse(result)
+
+
+@app.get("/last_results/{filename}")
+async def download_last_result(filename: str):
+    path = LAST_RESULTS_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Файл не найден")
+
+    def _iterfile():
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(8192)
+                if not chunk:
+                    break
+                yield chunk
+
+    return StreamingResponse(
+        _iterfile(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 # ---------------------- Локальный запуск ----------------------
